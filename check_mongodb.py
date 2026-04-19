@@ -1,3 +1,5 @@
+# check_mongodb.py
+
 from db.mongodb import get_chunks_collection
 
 def run_checks():

@@ -1,3 +1,5 @@
+# src/main.py
+
 import json
 import time
 from pathlib import Path
@@ -6,21 +8,18 @@ from src.generation.prompt_template import build_argus_prompt
 from src.generation.llm import generate_answer
 from src.verification.hallucination_checker import HallucinationChecker
 from src.reasoning.evidence_extractor import extract_evidence
+from src.evaluation.simple_eval import run_simple_evaluation
 from src.retrieval.retriever import Retriever
 
 
-# -----------------------------
 # CONFIG
-# -----------------------------
 LOG_DIR = Path("logs")
 MAX_RETRIES = 2
 
 retriever_cache = {}
 
 
-# -----------------------------
 # RETRIEVER
-# -----------------------------
 def get_retriever(domain: str):
     if domain not in retriever_cache:
         retriever_cache[domain] = Retriever(domain=domain)
@@ -47,9 +46,7 @@ def retrieve_chunks(query: str, domain: str = "nasa", top_k: int = 5) -> list:
     return chunks
 
 
-# -----------------------------
 # LOGGING
-# -----------------------------
 def save_log(data: dict) -> None:
     LOG_DIR.mkdir(exist_ok=True)
     file_path = LOG_DIR / f"log_{int(time.time())}.json"
@@ -58,9 +55,7 @@ def save_log(data: dict) -> None:
         json.dump(data, f, indent=4)
 
 
-# -----------------------------
 # TRUST SCORE
-# -----------------------------
 def calculate_trust_score(label: str, confidence: float) -> int:
 
     if label == "entailment":
@@ -78,9 +73,7 @@ def calculate_trust_score(label: str, confidence: float) -> int:
     return 0
 
 
-# -----------------------------
 # GENERATION + VERIFICATION
-# -----------------------------
 def generate_verified_answer(query: str, chunks: list, checker):
 
     final_answer = None
@@ -109,9 +102,7 @@ def generate_verified_answer(query: str, chunks: list, checker):
     return final_answer, final_label, final_confidence, final_debug
 
 
-# -----------------------------
 # MAIN PIPELINE
-# -----------------------------
 def run_pipeline(query: str, domain: str = "nasa") -> None:
 
     start_time = time.time()
@@ -131,26 +122,23 @@ def run_pipeline(query: str, domain: str = "nasa") -> None:
         checker=checker
     )
 
-    # -----------------------------
-    # 🔥 EVIDENCE EXTRACTION (FIXED)
-    # -----------------------------
-    answer_text = (
-        answer_json.get("answer", "")
-        if isinstance(answer_json, dict)
-        else str(answer_json)
-    )
+    # SAFE ANSWER HANDLING
+    if not isinstance(answer_json, dict):
+        answer_json = {
+            "answer": str(answer_json),
+            "evidence": []
+        }
 
+    answer_text = answer_json.get("answer", "")
+
+    # EVIDENCE EXTRACTION
     evidence = extract_evidence(chunks, answer_text)
 
-    # -----------------------------
     # METRICS
-    # -----------------------------
     latency = round(time.time() - start_time, 2)
     trust_score = calculate_trust_score(label, confidence)
 
-    # -----------------------------
     # LOGGING
-    # -----------------------------
     save_log({
         "query": query,
         "domain": domain,
@@ -161,9 +149,7 @@ def run_pipeline(query: str, domain: str = "nasa") -> None:
         "trust_score": trust_score
     })
 
-    # -----------------------------
     # OUTPUT
-    # -----------------------------
     print("\n" + "=" * 60)
     print("FINAL RESULT")
     print("=" * 60)
@@ -176,22 +162,28 @@ def run_pipeline(query: str, domain: str = "nasa") -> None:
     print("Trust Score :", f"{trust_score}/100")
     print("Latency     :", f"{latency} sec")
 
-    # -----------------------------
+
     # EVIDENCE PRINT
-    # -----------------------------
     print("\nEvidence:")
 
     if evidence:
         for e in evidence:
-            print("-", e["sentence"])
+            print("-", e.get("sentence", e))
     else:
         print("- No strong evidence found")
 
+    # RAGAS EVALUATION
+    run_simple_evaluation(
+        query=query,
+        answer=answer_text,
+        chunks=chunks,
+        label=label,
+        confidence=confidence
+    )
 
-# -----------------------------
+
 # ENTRY POINT
-# -----------------------------
 if __name__ == "__main__":
 
-    user_query = "What is Naruto’s birthday?"
-    run_pipeline(query=user_query, domain="anime")
+    user_query = "Did NASA train astronauts in Naruto language?"
+    run_pipeline(query=user_query, domain="nasa")

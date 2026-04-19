@@ -1,0 +1,9 @@
+{
+    "query": "Did NASA train astronauts in Naruto language?",
+    "domain": "nasa",
+    "retrieved_docs": 8,
+    "latency_sec": 12.75,
+    "verdict": "no_support",
+    "confidence": 0.0,
+    "trust_score": 0
+}

@@ -1,3 +1,5 @@
+# src/ingestion/pdf_loader.py
+
 import fitz
 
 def load_pdf(file_path: str):

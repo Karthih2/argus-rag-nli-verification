@@ -1,3 +1,5 @@
+# src/ingestion/chunker.py
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 def chunk_text(pages, chunk_size=600, overlap=120):

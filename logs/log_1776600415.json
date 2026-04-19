@@ -1,0 +1,9 @@
+{
+    "query": "What does the anime industry report say about COVID-19 impact on the market?",
+    "domain": "anime",
+    "retrieved_docs": 8,
+    "latency_sec": 24.57,
+    "verdict": "entailment",
+    "confidence": 0.9996,
+    "trust_score": 100
+}

@@ -1,3 +1,5 @@
+# src/retrieval/embedder.py
+
 from sentence_transformers import SentenceTransformer
 
 class Embedder:

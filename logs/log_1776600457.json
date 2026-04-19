@@ -1,0 +1,9 @@
+{
+    "query": "What training modules are included in astronaut preparation for ISS missions?",
+    "domain": "anime",
+    "retrieved_docs": 8,
+    "latency_sec": 41.81,
+    "verdict": "no_support",
+    "confidence": 0.0,
+    "trust_score": 0
+}

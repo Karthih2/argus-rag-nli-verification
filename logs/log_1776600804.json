@@ -1,0 +1,9 @@
+{
+    "query": "What training components are required for long-duration ISS missions and how long does preparation typically take?",
+    "domain": "nasa",
+    "retrieved_docs": 8,
+    "latency_sec": 18.52,
+    "verdict": "entailment",
+    "confidence": 0.9998,
+    "trust_score": 100
+}
