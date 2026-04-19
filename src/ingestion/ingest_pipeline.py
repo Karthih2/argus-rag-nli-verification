@@ -1,21 +1,22 @@
 import os
 import uuid
+
 from src.ingestion.pdf_loader import load_pdf
 from src.ingestion.cleaner import clean_text
 from src.ingestion.chunker import chunk_text
+from src.ingestion.chunk_filter import is_good_chunk
 from db.mongodb import get_chunks_collection
 
-# Root folder
 DATA_PATH = "data/raw_documents"
 
-def process_domain(domain_name):
-    """
-    domain_name = 'nasa' or 'anime'
-    """
+
+def process_domain(domain_name: str):
     domain_path = os.path.join(DATA_PATH, domain_name)
     collection = get_chunks_collection()
 
     all_chunks = []
+
+    print(f"\nProcessing domain: {domain_name}\n")
 
     for file in os.listdir(domain_path):
 
@@ -25,7 +26,7 @@ def process_domain(domain_name):
         file_path = os.path.join(domain_path, file)
         document_id = str(uuid.uuid4())
 
-        print(f"Processing: {file}")
+        print(f"Processing file: {file}")
 
         # 1. Load PDF
         pages = load_pdf(file_path)
@@ -37,12 +38,17 @@ def process_domain(domain_name):
         # 3. Chunk
         chunks = chunk_text(pages)
 
-        # 4. Attach metadata
+        # 4. FILTER (CRITICAL STEP)
+        chunks = [c for c in chunks if is_good_chunk(c["text"])]
+
+        print(f"   Valid chunks after filtering: {len(chunks)}")
+
+        # 5. Build MongoDB records
         for chunk in chunks:
-            chunk_record = {
+            all_chunks.append({
                 "chunk_id": str(uuid.uuid4()),
                 "document_id": document_id,
-                "domain": domain_name,  #  prevents mixing chunks from different domains
+                "domain": domain_name,
                 "file_name": file,
                 "text": chunk["text"],
                 "source": {
@@ -53,15 +59,12 @@ def process_domain(domain_name):
                     "chunk_size": 600,
                     "overlap": 120
                 }
-            }
+            })
 
-            all_chunks.append(chunk_record)
-
-    # 5. Store in MongoDB (bulk insert)
+    # 6. Insert into MongoDB
     if all_chunks:
         collection.insert_many(all_chunks, ordered=False)
-        print(f"Inserted {len(all_chunks)} chunks for {domain_name}")
-
+        print(f"\nInserted {len(all_chunks)} clean chunks for {domain_name}\n")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,9 @@
+{
+    "query": "What does the 2022 anime industry report say about market growth?",
+    "domain": "anime",
+    "retrieved_docs": 3,
+    "latency_sec": 16.79,
+    "verdict": "entailment",
+    "confidence": 0.9984,
+    "trust_score": 100
+}

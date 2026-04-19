@@ -1,0 +1,9 @@
+{
+    "query": "What factors caused the rise of anime in China?",
+    "domain": "anime",
+    "retrieved_docs": 3,
+    "latency_sec": 13.2,
+    "verdict": "entailment",
+    "confidence": 0.9933,
+    "trust_score": 99
+}

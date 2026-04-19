@@ -1,0 +1,9 @@
+{
+    "query": "Which report mentions cybersecurity rules of behavior?",
+    "domain": "nasa",
+    "retrieved_docs": 3,
+    "latency_sec": 15.67,
+    "verdict": "entailment",
+    "confidence": 0.9884,
+    "trust_score": 99
+}

@@ -1,15 +1,15 @@
-import pdfplumber
+import fitz
 
-def load_pdf(file_path):
+def load_pdf(file_path: str):
+    doc = fitz.open(file_path)
     pages = []
 
-    with pdfplumber.open(file_path) as pdf:
-        for i, page in enumerate(pdf.pages):
-            text = page.extract_text()
-            if text:
-                pages.append({
-                    "page_number": i + 1,
-                    "text": text
-                })
+    for i, page in enumerate(doc):
+        text = page.get_text("text")
+
+        pages.append({
+            "page_number": i + 1,
+            "text": text
+        })
 
     return pages

@@ -1,0 +1,9 @@
+{
+    "query": "What page mentions Russian language training?",
+    "domain": "nasa",
+    "retrieved_docs": 5,
+    "latency_sec": 16.44,
+    "verdict": "no_support",
+    "confidence": 0.0,
+    "trust_score": 0
+}

@@ -1,0 +1,9 @@
+{
+    "query": "What does the 2024 anime industry report say about market growth?",
+    "domain": "anime",
+    "retrieved_docs": 3,
+    "latency_sec": 13.29,
+    "verdict": "entailment",
+    "confidence": 0.9996,
+    "trust_score": 100
+}

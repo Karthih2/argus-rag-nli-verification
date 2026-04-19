@@ -1,0 +1,9 @@
+{
+    "query": "What is Naruto\u2019s birthday?",
+    "domain": "nasa",
+    "retrieved_docs": 8,
+    "latency_sec": 34.63,
+    "verdict": "neutral",
+    "confidence": 0.975,
+    "trust_score": 54
+}

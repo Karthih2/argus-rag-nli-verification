@@ -1,7 +1,7 @@
 import re
 
-def clean_text(text):
-    text = re.sub(r'\s+', ' ', text)  # remove extra spaces
-    text = re.sub(r'\n+', ' ', text)  # remove newlines
-    text = text.strip()
-    return text
+def clean_text(text: str) -> str:
+    text = text.replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[^\x00-\x7F]+", " ", text)  # remove weird unicode
+    return text.strip()

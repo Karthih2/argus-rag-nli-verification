@@ -1,0 +1,8 @@
+{
+    "query": "How long is astronaut training?",
+    "retrieved_docs": 2,
+    "generation_latency_sec": 3.77,
+    "nli_verdict": "entailment",
+    "confidence": 0.9999,
+    "trust_score": 100
+}
