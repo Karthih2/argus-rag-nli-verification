@@ -19,36 +19,54 @@ MAX_RETRIES = 2
 retriever_cache = {}
 
 
-# RETRIEVER
+# RETRIEVER CACHE
 def get_retriever(domain: str):
+    """
+    Load retriever only once per domain
+    """
     if domain not in retriever_cache:
         retriever_cache[domain] = Retriever(domain=domain)
+
     return retriever_cache[domain]
 
 
-def retrieve_chunks(query: str, domain: str = "nasa", top_k: int = 5) -> list:
+# RETRIEVE DOCUMENT CHUNKS
+def retrieve_chunks(
+    query: str,
+    domain: str = "nasa",
+    top_k: int = 8
+) -> list:
 
     retriever = get_retriever(domain)
-    results = retriever.retrieve(query=query, top_k=top_k)
+
+    results = retriever.retrieve(
+        query=query,
+        top_k=top_k
+    )
 
     chunks = []
 
     for doc in results:
-        chunks.append({
-            "text": doc.get("text", ""),
-            "file_name": doc.get("file_name", "unknown.pdf"),
-            "source": {
-                "page": doc.get("source", {}).get("page", "N/A")
+        chunks.append(
+            {
+                "text": doc.get("text", ""),
+                "file_name": doc.get("file_name", "unknown.pdf"),
+                "source": {
+                    "page": doc.get("source", {}).get("page", "N/A")
+                }
             }
-        })
+        )
 
     print(f"\nRetrieved chunks: {len(chunks)}")
+
     return chunks
 
 
-# LOGGING
+# SAVE LOGS
 def save_log(data: dict) -> None:
+
     LOG_DIR.mkdir(exist_ok=True)
+
     file_path = LOG_DIR / f"log_{int(time.time())}.json"
 
     with open(file_path, "w", encoding="utf-8") as f:
@@ -56,7 +74,10 @@ def save_log(data: dict) -> None:
 
 
 # TRUST SCORE
-def calculate_trust_score(label: str, confidence: float) -> int:
+def calculate_trust_score(
+    label: str,
+    confidence: float
+) -> int:
 
     if label == "entailment":
         return min(100, round(confidence * 100))
@@ -70,11 +91,18 @@ def calculate_trust_score(label: str, confidence: float) -> int:
     if label == "contradiction":
         return 0
 
+    if label == "no_support":
+        return 0
+
     return 0
 
 
-# GENERATION + VERIFICATION
-def generate_verified_answer(query: str, chunks: list, checker):
+# GENERATE + VERIFY ANSWER
+def generate_verified_answer(
+    query: str,
+    chunks: list,
+    checker
+):
 
     final_answer = None
     final_label = "unknown"
@@ -83,46 +111,84 @@ def generate_verified_answer(query: str, chunks: list, checker):
 
     for attempt in range(MAX_RETRIES + 1):
 
-        prompt = build_argus_prompt(query, chunks)
-        answer_json = generate_answer(prompt)
+        try:
+            prompt = build_argus_prompt(query, chunks)
 
-        label, confidence, debug = checker.verify(answer_json, chunks)
+            answer_json = generate_answer(prompt)
 
-        final_answer = answer_json
-        final_label = label
-        final_confidence = confidence
-        final_debug = debug
+            label, confidence, debug = checker.verify(
+                answer_json,
+                chunks
+            )
 
-        if label == "entailment" and confidence >= 0.85:
-            break
+            final_answer = answer_json
+            final_label = label
+            final_confidence = confidence
+            final_debug = debug
 
-        if attempt < MAX_RETRIES:
-            print(f"Retrying generation... ({attempt + 1})")
+            if label == "entailment" and confidence >= 0.85:
+                break
 
-    return final_answer, final_label, final_confidence, final_debug
+            if attempt < MAX_RETRIES:
+                print(f"Retrying generation... ({attempt + 1})")
+
+        except Exception as e:
+            print("Generation Error:", str(e))
+
+            final_answer = {
+                "answer": "Unable to generate verified answer.",
+                "evidence": []
+            }
+
+            final_label = "no_support"
+            final_confidence = 0.0
+            final_debug = {}
+
+    return (
+        final_answer,
+        final_label,
+        final_confidence,
+        final_debug
+    )
 
 
 # MAIN PIPELINE
-def run_pipeline(query: str, domain: str = "nasa") -> None:
+def run_pipeline(
+    query: str,
+    domain: str = "nasa"
+) -> dict:
 
     start_time = time.time()
+
     checker = HallucinationChecker()
 
-    # 1. Retrieve
-    chunks = retrieve_chunks(query=query, domain=domain, top_k=8)
+    # STEP 1: RETRIEVE
+    chunks = retrieve_chunks(
+        query=query,
+        domain=domain,
+        top_k=8
+    )
 
     if not chunks:
-        print("No relevant documents found.")
-        return
+        return {
+            "query": query,
+            "domain": domain,
+            "answer": "No relevant documents found.",
+            "verdict": "no_support",
+            "confidence": 0.0,
+            "trust_score": 0,
+            "latency": 0,
+            "evidence": []
+        }
 
-    # 2. Generate + Verify
+    # STEP 2: GENERATE + VERIFY
     answer_json, label, confidence, debug = generate_verified_answer(
         query=query,
         chunks=chunks,
         checker=checker
     )
 
-    # SAFE ANSWER HANDLING
+    # SAFE RESPONSE FORMAT
     if not isinstance(answer_json, dict):
         answer_json = {
             "answer": str(answer_json),
@@ -131,25 +197,34 @@ def run_pipeline(query: str, domain: str = "nasa") -> None:
 
     answer_text = answer_json.get("answer", "")
 
-    # EVIDENCE EXTRACTION
-    evidence = extract_evidence(chunks, answer_text)
+    # STEP 3: EVIDENCE EXTRACTION
+    evidence = extract_evidence(
+        chunks,
+        answer_text
+    )
 
-    # METRICS
+    # STEP 4: METRICS
     latency = round(time.time() - start_time, 2)
-    trust_score = calculate_trust_score(label, confidence)
 
-    # LOGGING
-    save_log({
-        "query": query,
-        "domain": domain,
-        "retrieved_docs": len(chunks),
-        "latency_sec": latency,
-        "verdict": label,
-        "confidence": round(confidence, 4),
-        "trust_score": trust_score
-    })
+    trust_score = calculate_trust_score(
+        label,
+        confidence
+    )
 
-    # OUTPUT
+    # STEP 5: LOGGING
+    save_log(
+        {
+            "query": query,
+            "domain": domain,
+            "retrieved_docs": len(chunks),
+            "latency_sec": latency,
+            "verdict": label,
+            "confidence": round(confidence, 4),
+            "trust_score": trust_score
+        }
+    )
+
+    # STEP 6: TERMINAL OUTPUT
     print("\n" + "=" * 60)
     print("FINAL RESULT")
     print("=" * 60)
@@ -162,28 +237,41 @@ def run_pipeline(query: str, domain: str = "nasa") -> None:
     print("Trust Score :", f"{trust_score}/100")
     print("Latency     :", f"{latency} sec")
 
-
-    # EVIDENCE PRINT
     print("\nEvidence:")
 
     if evidence:
-        for e in evidence:
-            print("-", e.get("sentence", e))
+        for item in evidence:
+            print("-", item.get("sentence", item))
     else:
         print("- No strong evidence found")
 
-    # RAGAS EVALUATION
-    run_simple_evaluation(
-        query=query,
-        answer=answer_text,
-        chunks=chunks,
-        label=label,
-        confidence=confidence
-    )
+    # STEP 7: SIMPLE EVAL
+    try:
+        run_simple_evaluation(
+            query=query,
+            answer=answer_text,
+            chunks=chunks,
+            label=label,
+            confidence=confidence
+        )
+
+    except Exception as e:
+        print("Evaluation Error:", str(e))
+
+    # RETURN FOR STREAMLIT / API
+    return {
+        "query": query,
+        "domain": domain,
+        "answer": answer_text,
+        "verdict": label,
+        "confidence": round(confidence, 4),
+        "trust_score": trust_score,
+        "latency": latency,
+        "evidence": evidence
+    }
 
 
 # ENTRY POINT
 if __name__ == "__main__":
-
-    user_query = "Did NASA train astronauts in Naruto language?"
-    run_pipeline(query=user_query, domain="nasa")
+    print("Run using Streamlit frontend:")
+    print("streamlit run app.py")
