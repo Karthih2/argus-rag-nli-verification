@@ -1,0 +1,9 @@
+{
+    "query": "Does the ISS support scientific experiments?",
+    "domain": "nasa",
+    "retrieved_docs": 8,
+    "latency_sec": 19.09,
+    "verdict": "entailment",
+    "confidence": 0.9997,
+    "trust_score": 100
+}

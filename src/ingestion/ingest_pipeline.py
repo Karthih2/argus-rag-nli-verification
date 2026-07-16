@@ -4,7 +4,7 @@
 import os
 import uuid
 
-from src.ingestion.pdf_loader import load_pdf
+from ingestion.loaders.pdf_loader import load_pdf
 from src.ingestion.cleaner import clean_text
 from src.ingestion.chunker import chunk_text
 from src.ingestion.chunk_filter import is_good_chunk

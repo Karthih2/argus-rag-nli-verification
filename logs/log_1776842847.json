@@ -1,0 +1,9 @@
+{
+    "query": "NASA says honesty is not part of scientific integrity.\n",
+    "domain": "nasa",
+    "retrieved_docs": 8,
+    "latency_sec": 27.52,
+    "verdict": "contradiction",
+    "confidence": 0.9928,
+    "trust_score": 0
+}
