@@ -1,14 +1,14 @@
-/** A tiny history router: four app routes don't need a routing library. */
+/** Tiny history router for Argus. */
 import { useEffect, useState } from 'react'
 
 const ROUTES = [
   ['landing', /^\/$/],
-  ['datasets', /^\/datasets\/?$/],
-  ['dataset', /^\/d\/([^/]+)\/?$/],
-  ['chat', /^\/chat\/([^/]+)\/?$/],
+  ['upload', /^\/upload\/?$/],
+  ['processing', /^\/processing\/([^/]+)\/?$/],
+  ['dashboard', /^\/dashboard\/([^/]+)\/?$/],
   ['analytics', /^\/analytics\/?$/],
 ]
-const PARAM_NAMES = { dataset: ['id'], chat: ['sessionId'] }
+const PARAM_NAMES = { processing: ['id'], dashboard: ['sessionId'] }
 
 export function matchRoute(pathname) {
   for (const [name, re] of ROUTES) {
@@ -34,7 +34,6 @@ export function useLocation() {
   return loc
 }
 
-/** An <a> that changes route without a page reload (modifier-clicks still open new tabs). */
 export function Link({ to, onClick, ...props }) {
   function handle(e) {
     onClick?.(e)

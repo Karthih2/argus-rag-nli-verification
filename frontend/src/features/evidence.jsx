@@ -1,4 +1,4 @@
-/** Evidence for one answer: the passage (quote highlighted), page image, and chart from table data. */
+/** Evidence panel: top chunks, passage view with highlighted quote, page image, chart. */
 import { useEffect, useState } from 'react'
 import { urls } from '../api/client'
 import { Badge } from '../components/ui/badge'
@@ -11,6 +11,7 @@ const CHART_COLORS = ['#8DB87A', '#C9973A', '#5B8DEF', '#D96B6B', '#9B7ED8', '#5
 const CHART_W = 400
 const CHART_H = 220
 const CHART_PAD = { l: 50, r: 16, t: 16, b: 40 }
+const MAX_CHUNKS = 5
 
 function BarChart({ chart }) {
   const { labels, series } = chart
@@ -101,18 +102,18 @@ function EvidenceChart({ chart, page }) {
       <Chart chart={chart} />
       <div className="flex flex-wrap gap-2">
         {chart.series.map((s, i) => (
-          <span key={i} className="flex items-center gap-1 text-xs text-muted">
-            <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
+          <span key={i} className="flex items-center gap-1 text-[11px] text-muted">
+            <span className="inline-block h-2 w-2 rounded-full" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
             {s.name}
           </span>
         ))}
       </div>
-      <span className="text-xs text-faint">From table, p.{page}</span>
+      <span className="text-[11px] text-faint">From table, p.{page}</span>
     </section>
   )
 }
 
-/** The passage text with the claim's quote highlighted (first case-insensitive match). */
+/** Passage text with the claim's quote highlighted. */
 function Highlighted({ text, quote }) {
   const at = quote ? text.toLowerCase().indexOf(quote.toLowerCase().slice(0, 60)) : -1
   if (at < 0) return text
@@ -131,18 +132,46 @@ function PagePreview({ item }) {
   useEffect(() => setLoaded(false), [item.chunk_id])
   if (!item.document_id || !item.page) return <p className="m-0 text-sm text-muted">No page image for this passage.</p>
   return (
-    <figure className="m-0 overflow-hidden rounded-[12px] bg-cotton shadow-[0_18px_36px_-18px_rgba(0,0,0,.7)]">
-      <figcaption className="flex justify-between px-4 py-2.5 text-xs text-graphite">
-        <span className="truncate">{item.file_name}</span><span>Page {item.page}</span>
+    <figure className="m-0 overflow-hidden rounded-[10px] bg-cotton shadow-[0_12px_24px_-12px_rgba(0,0,0,.7)]">
+      <figcaption className="flex justify-between px-3 py-2 text-[11px] text-graphite">
+        <span className="truncate">{item.file_name}</span><span>p.{item.page}</span>
       </figcaption>
       {!loaded && <Skeleton className="aspect-[3/4] w-full rounded-none bg-rule" />}
       <img
         src={urls.page(item.document_id, item.page, item.chunk_id)}
-        alt={`Page ${item.page} of ${item.file_name}, with the evidence outlined in green`}
+        alt={`Page ${item.page} of ${item.file_name}`}
         onLoad={() => setLoaded(true)}
         className={cn('block w-full', !loaded && 'hidden')}
       />
     </figure>
+  )
+}
+
+/** Chunk selector — shows top chunks as numbered cards with relevance score. */
+function ChunkList({ evidence, activeRef, onRef }) {
+  const top = evidence.slice(0, MAX_CHUNKS)
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-medium tracking-wide text-faint uppercase">Top {top.length} chunks</span>
+      {top.map((e, i) => (
+        <button key={e.ref} type="button" onClick={() => onRef(e.ref)}
+          className={cn(
+            'flex cursor-pointer items-center gap-3 rounded-[10px] border px-3 py-2.5 text-left transition-colors',
+            e.ref === activeRef ? 'border-cotton bg-active' : 'border-line-strong hover:border-muted hover:bg-hover',
+          )}>
+          <span className={cn('grid h-7 w-7 flex-none place-items-center rounded-md text-xs font-semibold', e.ref === activeRef ? 'bg-cherry text-cotton' : 'bg-hover text-muted')}>
+            {i + 1}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate text-[12px] font-medium text-cotton">{e.ref} · p.{e.page}</span>
+              <span className="flex-none text-[11px] text-faint tabular">{fixed(e.rerank)}</span>
+            </div>
+            <span className="block truncate text-[11px] text-muted">{e.type}{e.section ? ` — ${e.section}` : ''}</span>
+          </div>
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -155,7 +184,7 @@ export function EvidencePanel({ turn, activeRef, onRef }) {
   useEffect(() => setView('passage'), [turn?.query_id, turn?._id])
 
   if (!turn) return <p className="m-0 text-sm text-muted">Ask a question to see the passages behind the answer.</p>
-  if (!item) return <p className="m-0 text-sm text-muted">No passages were retrieved for this question.</p>
+  if (!item) return <p className="m-0 text-sm text-muted">No passages were retrieved.</p>
 
   const hasChart = Boolean(item?.chart)
   const tabs = [
@@ -165,25 +194,22 @@ export function EvidencePanel({ turn, activeRef, onRef }) {
   ]
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-1.5">
-        {evidence.map((e) => (
-          <button key={e.ref} type="button" onClick={() => onRef(e.ref)}
-            className={cn('cursor-pointer rounded-full border px-2.5 py-1 text-xs transition-colors',
-              e.ref === item.ref ? 'border-cotton bg-active text-cotton' : 'border-line-strong text-muted hover:text-cotton')}>
-            {e.ref} · p.{e.page}
-          </button>
-        ))}
-      </div>
+      {/* Top chunks list */}
+      <ChunkList evidence={evidence} activeRef={item.ref} onRef={onRef} />
+
+      {/* View tabs */}
       <Tabs label="Evidence views" value={view} onValueChange={setView} items={tabs} className="self-start" />
+
+      {/* Content area */}
       {view === 'passage' && (
         <section className="flex flex-col gap-3">
-          <div className="flex flex-wrap gap-2 text-xs text-muted">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
             <Badge>{item.type}</Badge>
             {item.section && <Badge className="max-w-full truncate">{item.section}</Badge>}
             <span className="ml-auto tabular">relevance {fixed(item.rerank)}</span>
           </div>
-          <blockquote className="m-0 rounded-[12px] bg-cotton px-5 py-4 font-display text-[19px] leading-normal text-noir">
-            <span className="mb-1.5 block font-sans text-xs text-graphite">{item.file_name}, page {item.page}</span>
+          <blockquote className="m-0 rounded-[10px] bg-cotton px-4 py-3 font-display text-base leading-normal text-noir">
+            <span className="mb-1 block font-sans text-[11px] text-graphite">{item.file_name}, p.{item.page}</span>
             <Highlighted text={item.text} quote={claim?.quote} />
           </blockquote>
         </section>

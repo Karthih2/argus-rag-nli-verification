@@ -1,21 +1,22 @@
-/** Line-art illustrations: Argus, the watchful eye whose pupil is the brand red, and small step drawings. */
+/** Line-art illustrations: Argus shield (Aegis) and small step drawings. */
 
 export function HeroArt() {
   const pages = [[60, 78], [40, 252], [118, 388], [1040, 56], [1066, 236], [986, 396]]
   return (
     <svg aria-hidden="true" viewBox="0 0 1200 520" className="pointer-events-none absolute top-10 left-1/2 h-[520px] w-[1200px] max-w-none -translate-x-1/2 opacity-45">
       <g fill="none" stroke="#3A3734">
-        <path d="M330 260 Q600 70 870 260 Q600 450 330 260 Z" />
-        <path d="M370 260 Q600 105 830 260 Q600 415 370 260 Z" stroke="#2E2C2A" />
-        <circle cx="600" cy="260" r="118" />
-        <circle cx="600" cy="260" r="92" stroke="#2E2C2A" />
-        <circle cx="600" cy="260" r="64" stroke="#2E2C2A" strokeDasharray="2 6" />
-        <path d="M600 142V120M600 378v22M482 260h-22M718 260h22" stroke="#57534C" />
-        <path d="M330 260 L120 120M330 260 L90 300M330 260 L170 430M870 260 L1080 110M870 260 L1110 290M870 260 L1030 440" stroke="#2A2827" strokeDasharray="3 5" />
+        {/* Shield outline */}
+        <path d="M600 100 L740 150 V280 C740 380 680 440 600 470 C520 440 460 380 460 280 V150 Z" strokeWidth="1.5" />
+        <path d="M600 130 L720 170 V280 C720 365 668 420 600 445 C532 420 480 365 480 280 V170 Z" stroke="#2E2C2A" />
+        <path d="M600 160 L700 192 V280 C700 350 656 398 600 420 C544 398 500 350 500 280 V192 Z" stroke="#2E2C2A" strokeDasharray="2 6" />
+        {/* Cross lines */}
+        <path d="M600 130V110M600 445v18M480 280h-18M720 280h18" stroke="#57534C" />
+        {/* Radiating lines to pages */}
+        <path d="M460 150 L120 120M460 280 L90 300M460 380 L170 430M740 150 L1080 110M740 280 L1110 290M740 380 L1030 440" stroke="#2A2827" strokeDasharray="3 5" />
       </g>
+      {/* Shield check */}
       <g className="anim-look">
-        <circle cx="600" cy="260" r="26" fill="#810100" opacity=".55" />
-        <circle cx="610" cy="250" r="5" fill="#EDEBDD" opacity=".5" />
+        <path d="M570 280 L592 304 L636 256" fill="none" stroke="#810100" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity=".55" />
       </g>
       {pages.map(([x, y]) => <rect key={`${x}-${y}`} x={x} y={y} width="96" height="124" rx="4" fill="#1E1C1C" stroke="#3A3734" />)}
       <g stroke="#3A3734" strokeWidth="3" strokeLinecap="round">

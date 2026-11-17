@@ -19,9 +19,11 @@ export function Separator({ className }) {
   return <div role="separator" className={cn('h-px w-full bg-border', className)} />
 }
 
-export function Textarea({ className, ...props }) {
-  return <textarea className={cn('w-full resize-none border-0 bg-transparent text-base leading-relaxed text-cotton outline-none placeholder:text-faint', className)} {...props} />
-}
+import { forwardRef } from 'react'
+
+export const Textarea = forwardRef(function Textarea({ className, ...props }, ref) {
+  return <textarea ref={ref} className={cn('w-full resize-none border-0 bg-transparent text-base leading-relaxed text-cotton outline-none placeholder:text-faint', className)} {...props} />
+})
 
 export function Alert({ tone = 'muted', title, children, className }) {
   const tones = { muted: 'border-line-strong bg-panel', bad: 'border-[#4a1a16] bg-[#241514]', warn: 'border-[#5e4a1e] bg-[#221d14]' }
