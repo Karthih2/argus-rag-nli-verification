@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+/* Design tokens: the only place colours, fonts and radii are defined. */
+@theme {
+  --color-noir: #181717;
+  --color-panel: #1e1c1c;
+  --color-raised: #211f1f;
+  --color-hover: #2a2827;
+  --color-active: #34312e;
+  --color-line: #2e2c2a;
+  --color-line-strong: #3a3734;
+  --color-line-bright: #57534c;
+  --color-faint: #8a867a;
+  --color-muted: #a8a496;
+  --color-soft: #c9c5b6;
+  --color-cotton: #edebdd;
+  --color-paper: #f7f6ef;
+  --color-rule: #d6d2c0;
+  --color-graphite: #5c5850;
+  --color-cherry: #810100;
+  --color-maroon: #630000;
+  --color-ok: #8db87a;
+  --color-ok-line: #3f7a4f;
+  --color-ok-bg: #e3e8da;
+  --color-ok-ink: #24452e;
+  --color-warn: #c9973a;
+  --color-warn-bg: #f1e4c6;
+  --color-warn-ink: #5e3e00;
+  --color-bad-bg: #f1d9d4;
+  --color-bad-ink: #4a0e0a;
+
+  /* shadcn semantic names, mapped to the palette above */
+  --color-background: var(--color-noir);
+  --color-foreground: var(--color-cotton);
+  --color-card: var(--color-panel);
+  --color-primary: var(--color-cherry);
+  --color-primary-foreground: var(--color-cotton);
+  --color-muted-foreground: var(--color-muted);
+  --color-border: var(--color-line);
+  --color-ring: var(--color-cotton);
+
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+}
+
+html { background: var(--color-noir); color-scheme: dark; }
+body { margin: 0; font-family: var(--font-sans); color: var(--color-cotton); background: var(--color-noir); -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--color-cotton); outline-offset: 2px; }
+::selection { background: var(--color-cherry); color: var(--color-cotton); }
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Motion: one page-load sequence, looping content illustrations, and feedback for actions. */
+@media (prefers-reduced-motion: no-preference) {
+  .anim-rise { animation: rise .5s ease both; }
+  .anim-float { animation: float 7s ease-in-out infinite; }
+  .anim-pulse { animation: pulse 1.6s ease-in-out infinite; }
+  .anim-spin { animation: spin 1s linear infinite; }
+  .anim-shimmer { animation: shimmer 1.4s ease-in-out infinite; }
+  .anim-look { animation: look 9s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  .anim-scan { animation: scan 4s ease-in-out infinite; }
+  .anim-read { animation: read 3.2s ease-in-out infinite; }
+  .anim-row { animation: rowin 3.6s ease infinite; }
+  .anim-grow { transform-origin: bottom; animation: grow 3.6s ease-in-out infinite; }
+  .anim-type { animation: type 4s steps(32) infinite; }
+  .anim-draw { background-size: 0% 2px; animation: draw .7s ease forwards; }
+}
+.delay-1 { animation-delay: .15s; } .delay-2 { animation-delay: .3s; } .delay-3 { animation-delay: .45s; }
+.delay-4 { animation-delay: .6s; } .delay-5 { animation-delay: .9s; } .delay-6 { animation-delay: 1.2s; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { 0%, 100% { opacity: .35; } 50% { opacity: .75; } }
+@keyframes look { 0%, 100% { transform: translate(0, 0); } 30% { transform: translate(-14px, 2px); } 60% { transform: translate(12px, -2px); } }
+@keyframes scan { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(64px); } }
+@keyframes read { 0%, 100% { background: var(--color-line-strong); } 25% { background: var(--color-cotton); } 50% { background: var(--color-line-strong); } }
+@keyframes rowin { 0%, 15% { opacity: 0; transform: translateX(-6px); } 25%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes grow { 0% { transform: scaleY(0); } 35%, 80% { transform: scaleY(1); } 100% { transform: scaleY(0); } }
+@keyframes type { from { width: 0; } 60%, to { width: 100%; } }
+@keyframes draw { to { background-size: 100% 2px; } }
+
+.underline-claim { background-repeat: no-repeat; background-position: 0 100%; background-size: 100% 2px; padding-bottom: 2px; }

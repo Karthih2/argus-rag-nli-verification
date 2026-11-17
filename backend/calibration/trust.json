@@ -1,0 +1,72 @@
+{
+  "version": "2.0",
+  "fit_date": "2026-11-17T14:00:33.823705+00:00",
+  "data_sources": [
+    "FEVER-NLI 600-pair sample",
+    "wandb/RAGTruth-processed ~1500 subset"
+  ],
+  "temperature": 1.8995,
+  "trust_model": {
+    "features": [
+      "min_support",
+      "mean_support",
+      "max_rel_contra",
+      "share_supported",
+      "n_claims",
+      "quote_match_rate",
+      "number_mismatches",
+      "top1_rerank",
+      "rerank_gap",
+      "repaired"
+    ],
+    "mean": [
+      0.208131,
+      0.477688,
+      0.330914,
+      0.0,
+      7.602222,
+      0.0,
+      0.701111,
+      1.0,
+      0.0,
+      0.0
+    ],
+    "scale": [
+      0.238397,
+      0.218445,
+      0.276998,
+      1.0,
+      4.040021,
+      1.0,
+      1.309198,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "coef": [
+      0.376013,
+      0.427935,
+      -0.105623,
+      0.0,
+      -0.09336,
+      0.0,
+      -0.103431,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "intercept": 0.260569
+  },
+  "thresholds": {
+    "verified": 87,
+    "withheld": 30
+  },
+  "metrics": {
+    "brier": 0.2214,
+    "auroc": 0.6718,
+    "ece": 0.0623,
+    "verified_observed_error": 0.1515,
+    "verified_target": 0.05,
+    "test_n": 300
+  }
+}

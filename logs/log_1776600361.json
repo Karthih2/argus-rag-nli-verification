@@ -1,9 +1,0 @@
-{
-    "query": "What page mentions Russian language training?",
-    "domain": "anime",
-    "retrieved_docs": 8,
-    "latency_sec": 14.11,
-    "verdict": "no_support",
-    "confidence": 0.0,
-    "trust_score": 0
-}

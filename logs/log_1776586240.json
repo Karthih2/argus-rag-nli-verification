@@ -1,9 +1,0 @@
-{
-    "query": "How long is astronaut training?",
-    "domain": "nasa",
-    "retrieved_docs": 3,
-    "latency_sec": 14.58,
-    "verdict": "entailment",
-    "confidence": 0.9874,
-    "trust_score": 99
-}

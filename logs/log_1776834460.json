@@ -1,9 +1,0 @@
-{
-    "query": "Who is the richest anime fan in Chennai?",
-    "domain": "anime",
-    "retrieved_docs": 8,
-    "latency_sec": 6.82,
-    "verdict": "no_support",
-    "confidence": 0.0,
-    "trust_score": 0
-}

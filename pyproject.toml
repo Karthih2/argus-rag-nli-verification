@@ -1,0 +1,18 @@
+[project]
+name = "argus"
+version = "0.2.0"
+description = "Claim-level hallucination gating for RAG over mixed-content PDFs, with self-calibrating trust"
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = ["frontend", "venv", "models", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "BLE"]
+ignore = ["B008", "B905"]  # FastAPI File(...) defaults; zip lengths are equal by construction
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

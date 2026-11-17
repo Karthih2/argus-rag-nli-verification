@@ -1,0 +1,44 @@
+# Backend dependencies. Pinned to the versions in the project venv (Python 3.10+).
+# Install: pip install -r backend/requirements.txt  (CPU torch: add --extra-index-url https://download.pytorch.org/whl/cpu)
+
+# API
+fastapi==0.139.2
+uvicorn==0.51.0
+sse-starlette==3.5.0
+python-multipart==0.0.34  # needed by FastAPI for PDF uploads
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-dotenv==1.2.2
+
+# Database
+pymongo==4.18.3
+
+# Ingestion
+docling==2.141.0
+docling-core==2.103.1
+pdfplumber==0.11.10
+pypdfium2==5.14.0
+pillow==12.3.0
+pysbd==0.3.4
+rapidfuzz==3.14.5
+
+# Models and statistics
+torch==2.13.0
+transformers==5.14.1
+sentence-transformers==5.6.0
+numpy==2.2.6
+scipy==1.15.3
+scikit-learn==1.7.2
+pandas==2.3.3
+pyarrow==24.0.0
+
+# LLM
+groq==1.7.0
+
+# FEVER download
+datasets==5.0.0
+
+# Dev
+ruff==0.17.1
+pytest==9.1.1
+httpx==0.28.1

@@ -1,9 +1,0 @@
-{
-    "query": "What is Naruto\u2019s birthday?",
-    "domain": "anime",
-    "retrieved_docs": 3,
-    "latency_sec": 17.46,
-    "verdict": "contradiction",
-    "confidence": 0.9991,
-    "trust_score": 0
-}

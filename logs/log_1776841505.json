@@ -1,9 +1,0 @@
-{
-    "query": "Did the international market contribute strongly?\n",
-    "domain": "anime",
-    "retrieved_docs": 8,
-    "latency_sec": 42.8,
-    "verdict": "entailment",
-    "confidence": 0.9993,
-    "trust_score": 100
-}

@@ -1,9 +1,0 @@
-{
-    "query": "What does the ISS robotic control system called \u201cKontur\u201d do?",
-    "domain": "nasa",
-    "retrieved_docs": 8,
-    "latency_sec": 14.95,
-    "verdict": "entailment",
-    "confidence": 0.9995,
-    "trust_score": 100
-}

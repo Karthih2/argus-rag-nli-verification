@@ -1,9 +1,0 @@
-{
-    "query": "What trends are mentioned in the 2023 anime report?",
-    "domain": "anime",
-    "retrieved_docs": 8,
-    "latency_sec": 20.78,
-    "verdict": "entailment",
-    "confidence": 0.9996,
-    "trust_score": 100
-}
