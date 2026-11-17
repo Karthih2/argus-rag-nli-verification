@@ -1,0 +1,2 @@
+test,n_test,auroc,precision_faithful,recall_faithful,f1_faithful,precision_hallucinated,recall_hallucinated,f1_hallucinated,confusion_matrix,accuracy
+hallucination_detection,300,0.6718,0.6603,0.6242,0.6417,0.5694,0.6074,0.5878,"[[82, 53], [62, 103]]",0.6167

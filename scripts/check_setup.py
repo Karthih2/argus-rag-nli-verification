@@ -59,7 +59,7 @@ def check_mongodb() -> bool:
             ok = False
         else:
             print(f"{OK} GridFS put/get/delete round-trip")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"{FAIL} GridFS: {e}")
         ok = False
 
@@ -111,7 +111,7 @@ def check_groq() -> bool:
         print(f"{sym} Groq JSON call: ok={reply.get('ok')}, model={reply.get('_model')}, {latency_ms}ms")
         if not json_ok:
             ok = False
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"{FAIL} Groq: {e}")
         ok = False
     return ok
@@ -133,7 +133,7 @@ def check_models() -> bool:
         print(f"{sym} BGE embedder: dim={dim}")
         if dim != 768:
             ok = False
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"{FAIL} BGE embedder: {e}")
         ok = False
 
@@ -142,7 +142,7 @@ def check_models() -> bool:
         from backend.models import rerank_scores
         scores = rerank_scores("test", ["test passage"])
         print(f"{OK} Reranker: score={scores[0]:.4f}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"{FAIL} Reranker: {e}")
         ok = False
 
@@ -154,10 +154,14 @@ def check_models() -> bool:
         total = sum(probs.values())
         sums_ok = abs(total - 1.0) < 0.01
         sym = OK if sums_ok else FAIL
-        print(f"{sym} NLI: ent={probs['ent']:.3f} neu={probs['neu']:.3f} con={probs['con']:.3f} sum={total:.4f}")
+        print(
+            f"{sym} NLI: ent={probs['ent']:.3f}"
+            f" neu={probs['neu']:.3f}"
+            f" con={probs['con']:.3f} sum={total:.4f}"
+        )
         if not sums_ok:
             ok = False
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"{FAIL} NLI model: {e}")
         ok = False
     return ok
@@ -212,16 +216,21 @@ def smoke_test() -> bool:
         for q in SMOKE_QUESTIONS:
             try:
                 result = run_question(q, dataset_id)
-                has_decision = result.get("decision") in ("ACCEPT", "ACCEPT_LOW_CONFIDENCE", "WARN", "BLOCK", "NO_SUPPORT")
+                valid = ("ACCEPT", "ACCEPT_LOW_CONFIDENCE", "WARN", "BLOCK", "NO_SUPPORT")
+                has_decision = result.get("decision") in valid
                 has_trust = isinstance(result.get("trust"), int) and 0 <= result["trust"] <= 100
                 has_claims = isinstance(result.get("claims"), list)
                 has_evidence = isinstance(result.get("evidence"), list)
                 passed = has_decision and has_trust and has_claims and has_evidence
                 sym = OK if passed else FAIL
-                print(f"{sym} Smoke Q: '{q[:50]}...' decision={result.get('decision')} trust={result.get('trust')}")
+                print(
+                    f"{sym} Smoke Q: '{q[:50]}...'"
+                    f" decision={result.get('decision')}"
+                    f" trust={result.get('trust')}"
+                )
                 if not passed:
                     ok = False
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"{FAIL} Smoke Q: '{q[:50]}...' error: {e}")
                 ok = False
 
@@ -233,10 +242,14 @@ def smoke_test() -> bool:
             remaining_docs = documents().count_documents({"dataset_id": dataset_id})
             clean = remaining_chunks == 0 and remaining_docs == 0
             sym = OK if clean else FAIL
-            print(f"{sym} Smoke: cleanup {'complete' if clean else f'incomplete: {remaining_chunks} chunks, {remaining_docs} docs left'}")
+            status = "complete" if clean else (
+                f"incomplete: {remaining_chunks} chunks,"
+                f" {remaining_docs} docs left"
+            )
+            print(f"{sym} Smoke: cleanup {status}")
             if not clean:
                 ok = False
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"{FAIL} Smoke: cleanup error: {e}")
             ok = False
     return ok

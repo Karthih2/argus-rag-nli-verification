@@ -37,7 +37,6 @@ docs/reports/*.pdf
 
 # ---- Generated output ----
 logs/
-results/
 *.log
 
 # ---- Local tooling, editors and OS files ----

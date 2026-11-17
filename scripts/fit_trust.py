@@ -26,7 +26,7 @@ from sklearn.metrics import brier_score_loss, roc_auc_score
 from sklearn.model_selection import GroupShuffleSplit
 
 from backend.config import ROOT_DIR, settings
-from backend.verification.nli import nli_logits, label_indices
+from backend.verification.nli import label_indices, nli_logits
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger(__name__)
@@ -66,7 +66,11 @@ def fit_temperature() -> float:
     idx = label_indices()
     raw_logits = nli_logits(pairs)
 
-    label_to_col = {"entailment": idx["entailment"], "neutral": idx["neutral"], "contradiction": idx["contradiction"]}
+    label_to_col = {
+        "entailment": idx["entailment"],
+        "neutral": idx["neutral"],
+        "contradiction": idx["contradiction"],
+    }
     y_col = np.array([label_to_col[lab] for lab in true_labels])
 
     def nll(T: float) -> float:
@@ -132,7 +136,7 @@ def process_ragtruth(temperature: float) -> tuple[np.ndarray, np.ndarray, list[s
 
         try:
             verified = verify_claims(claims, evidence, temperature, thresholds)
-        except Exception as e:
+        except (ValueError, RuntimeError, KeyError) as e:
             log.warning("Row %d failed: %s", i, e)
             continue
 
@@ -158,7 +162,11 @@ def process_ragtruth(temperature: float) -> tuple[np.ndarray, np.ndarray, list[s
         if (i + 1) % 100 == 0:
             log.info("  processed %d / %d", i + 1, len(rows))
 
-    log.info("Processed %d answers: %d faithful, %d hallucinated", len(y_list), sum(y_list), len(y_list) - sum(y_list))
+    n_faith = sum(y_list)
+    log.info(
+        "Processed %d answers: %d faithful, %d hallucinated",
+        len(y_list), n_faith, len(y_list) - n_faith,
+    )
     return np.array(X_rows), np.array(y_list), groups
 
 
@@ -212,7 +220,10 @@ def clopper_pearson_upper(k: int, n: int, alpha: float = 0.05) -> float:
 
 
 def find_cutoffs(
-    model: LogisticRegression, X: np.ndarray, y: np.ndarray, mean: np.ndarray, scale: np.ndarray, cal_idx: np.ndarray
+    model: LogisticRegression,
+    X: np.ndarray, y: np.ndarray,
+    mean: np.ndarray, scale: np.ndarray,
+    cal_idx: np.ndarray,
 ) -> dict:
     """Find Verified and Withheld thresholds on the calibration split.
 
@@ -241,7 +252,10 @@ def find_cutoffs(
 
     if verified_threshold is None:
         # Fallback: pick threshold with lowest observed error rate among those with ≥20 samples
-        log.warning("No threshold meets RISK_VERIFIED=%.3f with ≥%d examples; using best available", settings.RISK_VERIFIED, min_accepted)
+        log.warning(
+            "No threshold meets RISK_VERIFIED=%.3f with >=%d examples; using best available",
+            settings.RISK_VERIFIED, min_accepted,
+        )
         best_err, best_t = 1.0, 75
         for threshold in range(50, 100):
             accepted = trust_scores >= threshold
@@ -271,7 +285,10 @@ def find_cutoffs(
 
     if withheld_threshold is None:
         withheld_threshold = 30  # conservative fallback
-        log.warning("No withheld threshold meets RISK_WITHHOLD=%.3f; defaulting to %d", settings.RISK_WITHHOLD, withheld_threshold)
+        log.warning(
+            "No withheld threshold meets RISK_WITHHOLD=%.3f; defaulting to %d",
+            settings.RISK_WITHHOLD, withheld_threshold,
+        )
 
     log.info("Thresholds: verified=%s, withheld=%s", verified_threshold, withheld_threshold)
     return {"verified": verified_threshold, "withheld": withheld_threshold}

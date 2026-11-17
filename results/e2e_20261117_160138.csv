@@ -1,0 +1,2 @@
+test,n_questions,n_answered,coverage,coverage_ci_95,decisions.Verified,decisions.Flagged,without_gate_shown
+e2e,50,50,0.98,"[0.94, 1.0]",44,6,50

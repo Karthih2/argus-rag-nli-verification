@@ -8,10 +8,11 @@ Usage:
     python -m eval.run --retrieval
     python -m eval.run --e2e
 
-Writes results/<name>_<date>.json per test and results/REPORT.md summary.
+Writes results/<name>_<date>.csv per test and results/summary_<date>.csv.
 """
 
 import argparse
+import csv
 import json
 import logging
 import sys
@@ -36,14 +37,51 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
+def _flatten_csv_row(data: dict) -> dict:
+    """Flatten nested metrics into columns and encode lists as JSON."""
+    row = {}
+
+    def add_values(values, prefix=""):
+        for key, value in values.items():
+            column = f"{prefix}.{key}" if prefix else key
+            if isinstance(value, dict):
+                add_values(value, column)
+            elif isinstance(value, list):
+                row[column] = json.dumps(value, default=str)
+            else:
+                row[column] = value
+
+    add_values(data)
+    return row
+
+
+def _write_csv(path, rows: list) -> None:
+    fieldnames = list(dict.fromkeys(
+        key for row in rows for key in row
+    ))
+    with path.open("w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    log.info("Saved %s", path)
+
+
 def _save(name: str, data: dict):
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = RESULTS_DIR / f"{name}_{_now()}.json"
-    path.write_text(
-        json.dumps(data, indent=2, default=str), encoding="utf-8"
-    )
-    log.info("Saved %s", path)
+    path = RESULTS_DIR / f"{name}_{_now()}.csv"
+    _write_csv(path, [_flatten_csv_row(data)])
     return path
+
+
+def _save_summary_csv(results: dict) -> None:
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    rows = [
+        _flatten_csv_row({"test": name, **result})
+        for name, result in results.items()
+    ]
+    _write_csv(
+        RESULTS_DIR / f"summary_{_now()}.csv", rows
+    )
 
 
 def _make_evidence(ctx_text: str, chunk_id: str = "ctx"):
@@ -727,117 +765,6 @@ def run_e2e() -> dict:
 
 
 # -------------------------------------------------------------------
-# Report
-# -------------------------------------------------------------------
-
-
-def write_report(results: dict) -> None:
-    """Write results/REPORT.md summary."""
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "# Argus Evaluation Report",
-        f"Date: {datetime.now(timezone.utc).isoformat()}",
-        "",
-    ]
-
-    if "hallucination" in results:
-        r = results["hallucination"]
-        lines += [
-            "## 1. Hallucination Detection (RAGTruth test split)",
-            f"- AUROC: {r.get('auroc')}",
-            f"- Precision (faithful): {r.get('precision_faithful')}",
-            f"- Recall (faithful): {r.get('recall_faithful')}",
-            f"- F1 (faithful): {r.get('f1_faithful')}",
-            f"- F1 (hallucinated): {r.get('f1_hallucinated')}",
-            f"- Accuracy: {r.get('accuracy')}",
-            f"- Confusion matrix: {r.get('confusion_matrix')}",
-            "",
-        ]
-
-    if "calibration" in results:
-        r = results["calibration"]
-        lines += [
-            "## 2. Calibration",
-            f"- Brier score: {r.get('brier')}",
-            f"- ECE: {r.get('ece')}",
-            f"- AUROC: {r.get('auroc')}",
-            f"- Reliability diagram: "
-            f"{len(r.get('reliability_diagram', []))} bins",
-            "",
-        ]
-
-    if "injected" in results:
-        r = results["injected"]
-        if r.get("skipped"):
-            lines += [
-                "## 3. Injected Errors",
-                f"- Skipped: {r.get('reason')}",
-                "",
-            ]
-        else:
-            lines += [
-                "## 3. Injected Errors (NASA chunks)",
-                f"- Correct claims: {r.get('n_correct')}",
-                f"- False alarm rate: {r.get('false_alarm_rate')}",
-                f"- Catch (number swap): "
-                f"{r.get('catch_rate_number_swap')}",
-                f"- Catch (entity swap): "
-                f"{r.get('catch_rate_entity_swap')}",
-                f"- Catch (negation): "
-                f"{r.get('catch_rate_negation')}",
-                "",
-            ]
-
-    if "retrieval" in results:
-        r = results["retrieval"]
-        if r.get("skipped"):
-            lines += [
-                "## 4. Retrieval",
-                f"- Skipped: {r.get('reason')}",
-                "",
-            ]
-        else:
-            v = r["vector"]
-            k = r["keyword"]
-            h = r["hybrid_rerank"]
-            lines += [
-                "## 4. Retrieval (NASA chunks)",
-                f"- Queries: {r.get('n_queries')}",
-                f"- Vector: R@5={v.get('recall_at_5')} "
-                f"MRR={v.get('mrr')}",
-                f"- Keyword: R@5={k.get('recall_at_5')} "
-                f"MRR={k.get('mrr')}",
-                f"- Hybrid+rerank: R@5={h.get('recall_at_5')} "
-                f"MRR={h.get('mrr')}",
-                "",
-            ]
-
-    if "e2e" in results:
-        r = results["e2e"]
-        if r.get("skipped"):
-            lines += [
-                "## 5. End-to-End",
-                f"- Skipped: {r.get('reason')}",
-                "",
-            ]
-        else:
-            lines += [
-                "## 5. End-to-End",
-                f"- Questions: {r.get('n_questions')}, "
-                f"answered: {r.get('n_answered')}",
-                f"- Coverage: {r.get('coverage')} "
-                f"{r.get('coverage_ci_95')}",
-                f"- Decisions: {r.get('decisions')}",
-                "",
-            ]
-
-    report = "\n".join(lines)
-    path = RESULTS_DIR / "REPORT.md"
-    path.write_text(report, encoding="utf-8")
-    log.info("Wrote %s", path)
-
-
-# -------------------------------------------------------------------
 # CLI
 # -------------------------------------------------------------------
 
@@ -884,7 +811,7 @@ def main() -> None:
                 log.error("%s test failed: %s", name, e)
 
     if results:
-        write_report(results)
+        _save_summary_csv(results)
 
     print("\n=== Evaluation complete ===")
 

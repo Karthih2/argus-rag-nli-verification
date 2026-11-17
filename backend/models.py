@@ -34,9 +34,8 @@ def get_reranker() -> CrossEncoder:
 @lru_cache(maxsize=1)
 def get_nli_model():
     """DeBERTa NLI model + tokenizer, loaded once."""
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
-
     import torch
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     log.info("Loading NLI model: %s (device=%s)", settings.NLI_MODEL_NAME, device)

@@ -46,7 +46,7 @@ def nli_token_count(text: str) -> int:
         try:
             from backend.models import get_nli_model
             _, _nli_tokenizer = get_nli_model()
-        except Exception:
+        except (ImportError, OSError, RuntimeError):
             return approx_tokens(text)
     return len(_nli_tokenizer.encode(text, add_special_tokens=False))
 

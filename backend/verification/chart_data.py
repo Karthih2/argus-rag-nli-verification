@@ -64,7 +64,10 @@ def _pick_chart(df: pd.DataFrame) -> dict | None:
                 return {
                     "type": "pie",
                     "labels": labels,
-                    "series": [{"name": name, "data": [round(float(v), 2) if pd.notna(v) else 0 for v in values]}],
+                    "series": [{"name": name, "data": [
+                        round(float(v), 2) if pd.notna(v) else 0
+                        for v in values
+                    ]}],
                 }
 
     # Line: first column looks like years or dates

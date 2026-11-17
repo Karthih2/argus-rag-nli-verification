@@ -36,7 +36,7 @@ def ingest_document(
             try:
                 from bson import ObjectId
                 get_fs().delete(ObjectId(gridfs_id))
-            except Exception:
+            except (ImportError, OSError, ValueError):
                 log.warning("Could not delete GridFS file %s", gridfs_id)
         _set(doc["_id"], {"processing.status": "failed", "processing.error": str(e)})
         raise

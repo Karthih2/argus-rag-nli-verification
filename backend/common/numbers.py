@@ -104,9 +104,15 @@ def parse_numbers(text: str) -> list[ParsedNumber]:
     digit_patterns = [
         (_PERCENT, lambda m: "%", lambda m: float(m.group(1).replace(",", ""))),
         (_DURATION, lambda m: m.group(2).lower().rstrip("s"), lambda m: float(m.group(1).replace(",", ""))),
-        (_CURRENCY_SCALE, lambda m: "USD", lambda m: float(m.group(1).replace(",", "")) * SCALES.get(m.group(2).lower().rstrip("s"), 1)),
+        (_CURRENCY_SCALE, lambda m: "USD", lambda m: (
+            float(m.group(1).replace(",", ""))
+            * SCALES.get(m.group(2).lower().rstrip("s"), 1)
+        )),
         (_CURRENCY, lambda m: "USD", lambda m: float(m.group(1).replace(",", ""))),
-        (_DIGIT_SCALE, lambda m: "", lambda m: float(m.group(1).replace(",", "")) * SCALES.get(m.group(2).lower().rstrip("s"), 1)),
+        (_DIGIT_SCALE, lambda m: "", lambda m: (
+            float(m.group(1).replace(",", ""))
+            * SCALES.get(m.group(2).lower().rstrip("s"), 1)
+        )),
         (_COMMA_NUM, lambda m: "", lambda m: float(m.group(1).replace(",", ""))),
         (_PLAIN_NUM, lambda m: "", lambda m: float(m.group(1).replace(",", ""))),
     ]
@@ -124,7 +130,8 @@ def parse_numbers(text: str) -> list[ParsedNumber]:
         if _overlaps(span, taken):
             continue
         num_part = m.group(0)
-        unit_match = re.search(r"(years?|months?|days?|hours?|minutes?|seconds?|weeks?)\s*$", num_part, re.IGNORECASE)
+        unit_re = r"(years?|months?|days?|hours?|minutes?|seconds?|weeks?)\s*$"
+        unit_match = re.search(unit_re, num_part, re.IGNORECASE)
         if unit_match:
             num_text = num_part[:unit_match.start()].strip()
             unit = unit_match.group(1).lower().rstrip("s")

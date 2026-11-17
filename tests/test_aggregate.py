@@ -10,7 +10,6 @@ def label(**kw):
         "quote_found": True,
         "quotations_ok": True,
         "numbers_ok": True,
-        "derived_only": False,
         **kw,
     }
     return label_claim(**args, thresholds=T)
@@ -22,7 +21,6 @@ def test_rules_in_order():
     assert label(quotations_ok=False) == "CONTRADICTED"
     assert label(numbers_ok=False) == "UNVERIFIED"
     assert label(quote_found=False) == "WEAKLY_SUPPORTED"
-    assert label(derived_only=True) == "WEAKLY_SUPPORTED"
     assert label(support=0.65) == "WEAKLY_SUPPORTED"
     assert label(support=0.3) == "UNVERIFIED"
 
