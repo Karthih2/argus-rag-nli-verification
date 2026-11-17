@@ -121,8 +121,8 @@ def process_ragtruth(temperature: float) -> tuple[np.ndarray, np.ndarray, list[s
         if not sentences:
             continue
 
-        # Create fake claims (no citations, no quotes — just NLI)
-        claims = [Claim(text=s, cites=["[1]"], quote="") for s in sentences]
+        # Create claims with sentence text for quote matching
+        claims = [Claim(text=s, cites=["[1]"], quote=s) for s in sentences]
         # Create fake evidence with the source context as a single chunk
         evidence = [
             {

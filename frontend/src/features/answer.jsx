@@ -82,17 +82,18 @@ function ScoreStrip({ result }) {
   const firstPage = result.evidence[0]?.page
   const cells = [
     ['Claims', `${c.supported} of ${total} supported`],
-    ['Lowest support', fixed(sc.min_support)],
+    ['Entailment', fixed(sc.mean_support ?? sc.min_support)],
+    ['Neutral', fixed(sc.mean_neutral ?? 0)],
+    ['Contradiction', fixed(sc.mean_contra ?? 0)],
     ['Numbers, quotes', sc.numbers_ok && sc.quotes_ok ? 'Both match' : !sc.numbers_ok ? 'Number mismatch' : 'Quote missing'],
-    ['Evidence', `${sc.evidence_types.join(', ') || '—'}${firstPage ? `, p.${firstPage}` : ''}`],
-    ['Trust source', sc.calibration?.version ? `Learned v${sc.calibration.version}` : 'Heuristic fallback'],
+    ['Evidence', `${sc.evidence_types?.join(', ') || 'text'}${firstPage ? `, p.${firstPage}` : ''}`],
   ]
   return (
-    <dl className="m-0 grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-px overflow-hidden rounded-[var(--radius-md)] border border-border bg-border text-[13px]">
+    <dl className="m-0 grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-px overflow-hidden rounded-[var(--radius-md)] border border-border bg-border text-[13px]">
       {cells.map(([k, v], i) => (
-        <div key={k} className="bg-card px-3.5 py-3">
-          <dt className="text-muted">{k}</dt>
-          <dd className={cn('m-0 mt-1 text-[15px] font-medium', k === 'Numbers, quotes' && v === 'Both match' && 'text-ok')}>{v}</dd>
+        <div key={k} className="bg-card px-3.5 py-2.5">
+          <dt className="text-muted text-[11px] uppercase tracking-wider">{k}</dt>
+          <dd className={cn('m-0 mt-0.5 text-[14px] font-medium tabular', k === 'Numbers, quotes' && v === 'Both match' && 'text-ok', k === 'Entailment' && 'text-ok font-semibold', k === 'Contradiction' && Number(v) > 0.2 && 'text-[#e0857c]')}>{v}</dd>
         </div>
       ))}
     </dl>
@@ -136,27 +137,53 @@ function Feedback({ queryId, initial }) {
 function Details({ result }) {
   return (
     <div className="flex flex-col gap-4 border-t border-border px-6 py-5 text-[13px]">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-cotton">NLI Verification & Evidence Breakdown</span>
+        <span className="text-xs text-muted">Model: {result.model || 'DeBERTa-v3'}</span>
+      </div>
       <table className="w-full border-collapse">
         <thead>
           <tr className="text-left text-muted">
-            <th className="py-2 pr-3 font-medium">Claim</th><th className="py-2 pr-3 font-medium">Label</th>
-            <th className="py-2 pr-3 text-right font-medium">Support</th><th className="py-2 pr-3 text-right font-medium">Contra</th>
+            <th className="py-2 pr-3 font-medium">Claim</th>
+            <th className="py-2 pr-3 font-medium">Label</th>
+            <th className="py-2 pr-3 text-right font-medium text-ok">Entailment</th>
+            <th className="py-2 pr-3 text-right font-medium text-soft">Neutral</th>
+            <th className="py-2 pr-3 text-right font-medium text-[#e0857c]">Contradiction</th>
+            <th className="py-2 pr-3 font-medium">NLI Split</th>
             <th className="py-2 font-medium">Checks</th>
           </tr>
         </thead>
         <tbody>
-          {result.claims.map((c, i) => (
-            <tr key={i} className="border-t border-hover align-top">
-              <td className="py-2 pr-3">{c.text}</td>
-              <td className="py-2 pr-3 whitespace-nowrap">{CLAIMS[c.label]?.label}</td>
-              <td className="py-2 pr-3 text-right tabular">{fixed(c.support)}</td>
-              <td className="py-2 pr-3 text-right tabular">{fixed(c.contra)}</td>
-              <td className="py-2 text-muted">
-                {[c.checks.quote_match ? 'quote found' : 'no quote', c.checks.numbers_ok ? 'numbers ok' : c.checks.number_detail]
-                  .filter(Boolean).join(', ')}
-              </td>
-            </tr>
-          ))}
+          {result.claims.map((c, i) => {
+            const ent = c.support ?? 0
+            const con = c.contra ?? 0
+            const neu = c.neutral ?? Math.max(0, Math.round((1.0 - ent - con) * 1000) / 1000)
+            const sum = (ent + neu + con) || 1
+            return (
+              <tr key={i} className="border-t border-hover align-middle">
+                <td className="py-2.5 pr-3 max-w-[280px] leading-snug">{c.text}</td>
+                <td className="py-2.5 pr-3 whitespace-nowrap">
+                  <span className={cn('rounded px-1.5 py-0.5 text-xs font-medium', c.label === 'SUPPORTED' ? 'bg-ok-line/20 text-ok' : c.label === 'CONTRADICTED' ? 'bg-cherry/20 text-[#e0857c]' : 'bg-hover text-muted')}>
+                    {CLAIMS[c.label]?.label ?? c.label}
+                  </span>
+                </td>
+                <td className="py-2.5 pr-3 text-right tabular text-ok font-medium">{fixed(ent)}</td>
+                <td className="py-2.5 pr-3 text-right tabular text-soft">{fixed(neu)}</td>
+                <td className="py-2.5 pr-3 text-right tabular text-[#e0857c] font-medium">{fixed(con)}</td>
+                <td className="py-2.5 pr-3 w-[80px]">
+                  <div className="flex h-2 w-full overflow-hidden rounded-full bg-line" title={`Entailment ${(ent*100).toFixed(0)}%, Neutral ${(neu*100).toFixed(0)}%, Contradiction ${(con*100).toFixed(0)}%`}>
+                    <span style={{ width: `${(ent / sum) * 100}%` }} className="bg-ok-line" />
+                    <span style={{ width: `${(neu / sum) * 100}%` }} className="bg-line-bright" />
+                    <span style={{ width: `${(con / sum) * 100}%` }} className="bg-cherry" />
+                  </div>
+                </td>
+                <td className="py-2.5 text-muted text-xs">
+                  {[c.checks?.quote_match ? 'quote verified' : 'no quote', c.checks?.numbers_ok ? 'numbers ok' : c.checks?.number_detail]
+                    .filter(Boolean).join(', ')}
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
       <p className="m-0 font-mono text-xs text-faint">

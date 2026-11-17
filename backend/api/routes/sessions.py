@@ -34,3 +34,12 @@ def list_all(dataset_id: str | None = None):
 def open_session(session_id: str):
     session = get_or_404(sessions_coll(), session_id, "Session")
     return {"session": session, "turns": list(queries().find({"session_id": session_id}).sort("turn", 1))}
+
+
+@router.delete("/sessions/{session_id}")
+def delete_session(session_id: str):
+    get_or_404(sessions_coll(), session_id, "Session")
+    sessions_coll().delete_one({"_id": session_id})
+    queries().delete_many({"session_id": session_id})
+    return {"ok": True, "deleted": session_id}
+

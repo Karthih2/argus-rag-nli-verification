@@ -21,8 +21,18 @@ export function Separator({ className }) {
 
 import { forwardRef } from 'react'
 
-export const Textarea = forwardRef(function Textarea({ className, ...props }, ref) {
-  return <textarea ref={ref} className={cn('w-full resize-none border-0 bg-transparent text-base leading-relaxed text-cotton outline-none placeholder:text-faint', className)} {...props} />
+export const Textarea = forwardRef(function Textarea({ className, style, ...props }, ref) {
+  return (
+    <textarea
+      ref={ref}
+      style={{ outline: 'none', outlineStyle: 'none', outlineWidth: 0, boxShadow: 'none', border: 'none', WebkitTapHighlightColor: 'transparent', ...style }}
+      className={cn(
+        'w-full resize-none border-0 bg-transparent text-base leading-relaxed text-cotton outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-faint',
+        className
+      )}
+      {...props}
+    />
+  )
 })
 
 export function Alert({ tone = 'muted', title, children, className }) {

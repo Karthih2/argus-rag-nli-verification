@@ -51,7 +51,15 @@
 
 html { background: var(--color-noir); color-scheme: dark; }
 body { margin: 0; font-family: var(--font-sans); color: var(--color-cotton); background: var(--color-noir); -webkit-font-smoothing: antialiased; }
-:focus-visible { outline: 2px solid var(--color-cotton); outline-offset: 2px; }
+:focus-visible:not(input):not(textarea) { outline: 2px solid var(--color-cotton); outline-offset: 2px; }
+textarea, input, textarea:focus, textarea:focus-visible, input:focus, input:focus-visible {
+  outline: none !important;
+  outline-style: none !important;
+  outline-width: 0 !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+  -webkit-focus-ring-color: transparent !important;
+}
 ::selection { background: var(--color-cherry); color: var(--color-cotton); }
 .tabular { font-variant-numeric: tabular-nums; }
 

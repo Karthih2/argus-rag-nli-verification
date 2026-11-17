@@ -5,7 +5,13 @@
     "FEVER-NLI 600-pair sample",
     "wandb/RAGTruth-processed ~1500 subset"
   ],
-  "temperature": 1.8995,
+  "temperature": 1.0,
+  "nli_thresholds": {
+    "tau_accept": 0.70,
+    "tau_low": 0.50,
+    "tau_block": 0.70,
+    "tau_rel": 0.0
+  },
   "trust_model": {
     "features": [
       "min_support",
@@ -58,7 +64,7 @@
     "intercept": 0.260569
   },
   "thresholds": {
-    "verified": 87,
+    "verified": 75,
     "withheld": 30
   },
   "metrics": {

@@ -5,7 +5,8 @@ const ROUTES = [
   ['landing', /^\/$/],
   ['upload', /^\/upload\/?$/],
   ['processing', /^\/processing\/([^/]+)\/?$/],
-  ['dashboard', /^\/dashboard\/([^/]+)\/?$/],
+  ['dashboard', /^\/dashboard(?:\/([^/]+))?\/?$/],
+  ['history', /^\/history\/?$/],
   ['analytics', /^\/analytics\/?$/],
 ]
 const PARAM_NAMES = { processing: ['id'], dashboard: ['sessionId'] }
@@ -13,7 +14,16 @@ const PARAM_NAMES = { processing: ['id'], dashboard: ['sessionId'] }
 export function matchRoute(pathname) {
   for (const [name, re] of ROUTES) {
     const m = pathname.match(re)
-    if (m) return { name, params: Object.fromEntries((PARAM_NAMES[name] || []).map((k, i) => [k, decodeURIComponent(m[i + 1])])) }
+    if (m) {
+      const paramKeys = PARAM_NAMES[name] || []
+      const params = {}
+      paramKeys.forEach((k, i) => {
+        if (m[i + 1] !== undefined) {
+          params[k] = decodeURIComponent(m[i + 1])
+        }
+      })
+      return { name, params }
+    }
   }
   return { name: 'notFound', params: {} }
 }

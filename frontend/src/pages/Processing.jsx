@@ -158,8 +158,14 @@ export default function Processing({ params }) {
             <Icon name="check" size={32} strokeWidth={2} />
           </div>
           <Display className="text-3xl text-ok">All documents processed</Display>
-          <p className="m-0 text-muted">Redirecting to your dashboard…</p>
-          <Spinner size={20} />
+          <p className="m-0 text-muted">Your documents are indexed and ready for verified questions.</p>
+          <button
+            type="button"
+            onClick={() => startChat(id, ready.map((d) => d._id))}
+            className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-cherry px-6 py-3 text-base font-semibold text-cotton shadow-lg transition-colors hover:bg-maroon"
+          >
+            Start Asking Questions →
+          </button>
         </div>
       )}
 

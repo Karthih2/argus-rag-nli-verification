@@ -29,8 +29,9 @@ export const api = {
     return request(`/datasets/${datasetId}/documents`, { method: 'POST', form })
   },
 
-  sessions: (datasetId) => request(`/sessions?dataset_id=${encodeURIComponent(datasetId)}`),
+  sessions: (datasetId) => request(datasetId ? `/sessions?dataset_id=${encodeURIComponent(datasetId)}` : '/sessions'),
   session: (id) => request(`/sessions/${id}`),
+  deleteSession: (id) => request(`/sessions/${id}`, { method: 'DELETE' }),
   createSession: (datasetId, documentIds) =>
     request('/sessions', { method: 'POST', body: { dataset_id: datasetId, document_ids: documentIds } }),
 

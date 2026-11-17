@@ -94,6 +94,9 @@ def _result(question, dataset_id, session, evidence, gate, trust, features, late
             "claims": count_labels(claims),
             "evidence_types": sorted({c.get("element_type", "text") for c in shown}),
             "min_support": features.get("min_support", 0.0),
+            "mean_support": features.get("mean_support", 0.0),
+            "mean_neutral": round(sum(c.get("neutral", 0.0) for c in claims) / len(claims), 4) if claims else 0.0,
+            "mean_contra": round(sum(c.get("contra", 0.0) for c in claims) / len(claims), 4) if claims else 0.0,
             "numbers_ok": all(c["checks"]["numbers_ok"] for c in claims),
             "quotes_ok": all(c["checks"]["quote_match"] for c in claims),
             "top_retrieval": features.get("top1_rerank", 0.0),
@@ -138,6 +141,18 @@ def _store(result: dict, dataset_id: str, document_ids, gate: dict, features: di
             "feedback": {"value": None, "reason": None},
         }
     )
+    if result.get("session_id"):
+        try:
+            from backend.sessions import record_turn
+            record_turn(
+                result["session_id"],
+                result["question"],
+                result["answer"],
+                result["decision"],
+                result["trust"],
+            )
+        except Exception as e:
+            log.warning("Failed to record turn in session %s: %s", result["session_id"], e)
 
 
 class _Timer:

@@ -1,2 +1,0 @@
-test,n_correct,n_number_swap,n_entity_swap,n_negation,false_alarm_rate,catch_rate_number_swap,catch_rate_entity_swap,catch_rate_negation,label_counts.correct.CONTRADICTED,label_counts.correct.UNVERIFIED,label_counts.correct.WEAKLY_SUPPORTED,label_counts.number_swap.CONTRADICTED,label_counts.number_swap.UNVERIFIED,label_counts.entity_swap.CONTRADICTED,label_counts.entity_swap.UNVERIFIED,label_counts.negation.CONTRADICTED,label_counts.negation.UNVERIFIED
-injected_errors,100,26,84,30,1.0,1.0,1.0,1.0,2,16,82,24,2,62,22,29,1

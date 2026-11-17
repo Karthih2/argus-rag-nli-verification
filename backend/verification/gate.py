@@ -66,20 +66,30 @@ def _chunks_for(claim: Claim, ranked: list[dict], by_ref: dict) -> list[dict]:
 
 def _verify_one(claim: Claim, chunks: list[dict], scores: list[dict], thresholds: dict) -> dict:
     if not chunks:
-        return _result(claim, UNVERIFIED, 0.0, 0.0, [], {}, None)
-    support = max(s["ent"] for s in scores)
+        return _result(claim, UNVERIFIED, 0.0, 0.0, 1.0, [], {}, None)
+    best_idx = max(range(len(chunks)), key=lambda i: scores[i]["ent"])
+    support = scores[best_idx]["ent"]
+    neutral = scores[best_idx]["neu"]
+    best = chunks[best_idx]
 
     # Contradiction only from cited chunks (fall back to best-entailing chunk)
     cited_indices = [i for i, c in enumerate(chunks) if c["_ref"] in claim.cites]
     if not cited_indices:
-        cited_indices = [max(range(len(chunks)), key=lambda i: scores[i]["ent"])]
+        cited_indices = [best_idx]
     contra = max(scores[i]["con"] for i in cited_indices)
-
-    best = chunks[max(range(len(chunks)), key=lambda i: scores[i]["ent"])]
 
     cited = [chunks[i] for i in cited_indices]
     check_text = "\n".join(evidence_text(c) for c in cited)
     quote_found, quote_score, _ = find_quote(claim.quote, check_text)
+    if not quote_found and claim.quote:
+        # Check all candidate chunks for this claim if citation was slightly off
+        all_text = "\n".join(evidence_text(c) for c in chunks)
+        quote_found, quote_score, _ = find_quote(claim.quote, all_text)
+    if not quote_found and not claim.quote and claim.text:
+        # Check claim text itself if no dedicated quote provided
+        all_text = "\n".join(evidence_text(c) for c in chunks)
+        quote_found, quote_score, _ = find_quote(claim.text, all_text)
+
     number_detail = number_problems(claim.text, check_text)
     checks = {
         "quote_match": quote_found,
@@ -92,13 +102,14 @@ def _verify_one(claim: Claim, chunks: list[dict], scores: list[dict], thresholds
         support, contra, quote_found, checks["quotations_ok"], checks["numbers_ok"], thresholds
     )
     nli = [{"ref": c["_ref"], **{k: round(v, 4) for k, v in s.items()}} for c, s in zip(chunks, scores)]
-    return _result(claim, label, support, contra, nli, checks, best)
+    return _result(claim, label, support, contra, neutral, nli, checks, best)
 
 
-def _result(claim, label, support, contra, nli, checks, best) -> dict:
+def _result(claim, label, support, contra, neutral, nli, checks, best) -> dict:
     highlight = {}
     if best is not None:
-        _, _, span = find_quote(claim.quote, best.get("text", ""))
+        quote_for_span = claim.quote if claim.quote else claim.text
+        _, _, span = find_quote(quote_for_span, best.get("text", ""))
         highlight = {"chunk_id": best["_id"], "ref": best["_ref"], "page": best.get("page"), "span": span}
     return {
         "text": claim.text,
@@ -107,6 +118,7 @@ def _result(claim, label, support, contra, nli, checks, best) -> dict:
         "label": label,
         "support": round(support, 4),
         "contra": round(contra, 4),
+        "neutral": round(neutral, 4),
         "nli": nli,
         "checks": checks
         or {

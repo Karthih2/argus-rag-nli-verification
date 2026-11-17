@@ -4,6 +4,10 @@ import { navigate } from './router'
 
 export async function startChat(datasetId, documentIds = [], question = '') {
   const session = await api.createSession(datasetId, documentIds)
+  try {
+    localStorage.setItem('argus_active_session', session._id)
+    localStorage.setItem('argus_active_dataset', datasetId)
+  } catch {}
   navigate(`/dashboard/${session._id}${question ? `?q=${encodeURIComponent(question)}` : ''}`)
 }
 

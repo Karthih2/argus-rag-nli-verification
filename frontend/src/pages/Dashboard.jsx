@@ -64,17 +64,33 @@ function ResultsSummary({ result }) {
 
   const DECISIONS = {
     ACCEPT: { label: 'Verified', color: 'text-ok', icon: 'check', desc: 'Answer verified — all claims supported by source passages' },
-    PARTIAL: { label: 'Partial', color: 'text-warn', icon: 'alert', desc: 'Some claims supported, some uncertain or missing evidence' },
+    ACCEPT_LOW_CONFIDENCE: { label: 'Partly Verified', color: 'text-warn', icon: 'alert', desc: 'Claims supported by passages, some with lower confidence' },
+    WARN: { label: 'Statements Need Review', color: 'text-warn', icon: 'alert', desc: 'Some statements could not be verified against the text' },
     BLOCK: { label: 'Withheld', color: 'text-[#e0857c]', icon: 'ban', desc: 'Answer withheld — contains claims that contradict the source' },
     NO_SUPPORT: { label: 'No Support', color: 'text-muted', icon: 'search', desc: 'No relevant passages found in documents for this question' },
-    LOW_CONF: { label: 'Low Confidence', color: 'text-warn', icon: 'alert', desc: 'Answer generated but confidence is too low for verification' },
   }
   const verdict = DECISIONS[result.decision] ?? DECISIONS.NO_SUPPORT
 
+  // 3-way NLI probabilities
+  const entProb = sc?.mean_support ?? sc?.min_support ?? 0
+  const conProb = sc?.mean_contra ?? 0
+  const neuProb = sc?.mean_neutral ?? Math.max(0, Math.round((1.0 - entProb - conProb) * 1000) / 1000)
+  const probSum = (entProb + neuProb + conProb) || 1
+
+  const entPct = Math.round((entProb / probSum) * 100)
+  const neuPct = Math.round((neuProb / probSum) * 100)
+  const conPct = Math.round((conProb / probSum) * 100)
+
+  const nliItems = [
+    { label: 'Entailment', pct: entPct, val: entProb.toFixed(3), color: 'text-ok', bg: 'bg-ok-line/15', barColor: 'bg-ok-line' },
+    { label: 'Neutral', pct: neuPct, val: neuProb.toFixed(3), color: 'text-soft', bg: 'bg-hover', barColor: 'bg-line-bright' },
+    { label: 'Contradiction', pct: conPct, val: conProb.toFixed(3), color: 'text-[#e0857c]', bg: 'bg-cherry/15', barColor: 'bg-cherry' },
+  ]
+
   const claimItems = [
-    { label: 'Entailed', value: c.supported, color: 'text-ok', bg: 'bg-ok-line/20', icon: 'check' },
+    { label: 'Supported', value: c.supported, color: 'text-ok', bg: 'bg-ok-line/20', icon: 'check' },
     { label: 'Weak', value: c.weak, color: 'text-warn', bg: 'bg-warn/20', icon: 'alert' },
-    { label: 'Not Found', value: c.unverified, color: 'text-muted', bg: 'bg-hover', icon: 'search' },
+    { label: 'Unverified', value: c.unverified, color: 'text-muted', bg: 'bg-hover', icon: 'search' },
     { label: 'Contradicted', value: c.contradicted, color: 'text-[#e0857c]', bg: 'bg-cherry/20', icon: 'ban' },
   ]
 
@@ -83,63 +99,76 @@ function ResultsSummary({ result }) {
       <div className="mb-4 flex items-center justify-between">
         <h3 className="m-0 flex items-center gap-2 text-lg font-semibold">
           <Icon name="shield" size={18} className="text-cherry" />
-          Verification Result
+          NLI Verification & Trust Breakdown
         </h3>
-        <HelpButton topic="NLI verification checks each claim in the answer against the source passages. Entailed = fully supported. Contradicted = conflicts with the source. Trust score is a calibrated probability the answer is correct." />
+        <HelpButton topic="NLI verification tests every claim in the answer against source passages: Entailment = factually supported. Neutral = cannot be confirmed or denied. Contradiction = conflicts with the source. Trust score is a calibrated confidence probability." />
       </div>
 
       {/* Verdict + Trust */}
-      <div className="mb-5 flex items-center gap-6">
+      <div className="mb-5 flex flex-wrap items-center gap-6">
         <div className="flex flex-col items-center gap-1.5">
           <span className={cn(
-            'text-[52px] font-semibold leading-none tabular',
-            trust >= 80 ? 'text-ok' : trust >= 60 ? 'text-warn' : 'text-[#e0857c]',
+            'text-[48px] font-semibold leading-none tabular',
+            trust >= 75 ? 'text-ok' : trust >= 50 ? 'text-warn' : 'text-[#e0857c]',
           )}>{trust || '—'}</span>
-          <span className="text-sm text-muted">Trust Score</span>
+          <span className="text-xs text-muted">Trust Score</span>
         </div>
-        <div className="h-16 w-px bg-border" />
-        <div className="flex flex-1 flex-col gap-3">
+        <div className="hidden h-16 w-px bg-border sm:block" />
+        <div className="flex flex-1 flex-col gap-3 min-w-[240px]">
           {/* Decision verdict */}
-          <div className={cn('flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2.5', verdict.color === 'text-ok' ? 'bg-ok-line/15' : verdict.color === 'text-warn' ? 'bg-warn/15' : verdict.color === 'text-[#e0857c]' ? 'bg-cherry/15' : 'bg-hover')}>
+          <div className={cn('flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2', verdict.color === 'text-ok' ? 'bg-ok-line/15' : verdict.color === 'text-warn' ? 'bg-warn/15' : verdict.color === 'text-[#e0857c]' ? 'bg-cherry/15' : 'bg-hover')}>
             <Icon name={verdict.icon} size={16} className={verdict.color} />
-            <span className={cn('text-base font-semibold', verdict.color)}>{verdict.label}</span>
-            <span className="text-xs text-muted">— {verdict.desc}</span>
+            <span className={cn('text-sm font-semibold', verdict.color)}>{verdict.label}</span>
+            <span className="text-xs text-muted truncate">— {verdict.desc}</span>
           </div>
-          {/* Claim breakdown (only when we have score_card) */}
-          {sc && total > 0 && (
-            <div className="flex flex-wrap gap-2.5">
-              {claimItems.filter(it => it.value > 0).map((it) => (
-                <div key={it.label} className={cn('flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1.5', it.bg)}>
-                  <Icon name={it.icon} size={13} className={it.color} />
-                  <span className={cn('text-lg font-semibold tabular', it.color)}>{it.value}</span>
-                  <span className="text-xs text-muted">{it.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
+
+          {/* 3 NLI Scores */}
+          <div className="grid grid-cols-3 gap-2">
+            {nliItems.map((it) => (
+              <div key={it.label} className={cn('flex flex-col rounded-[var(--radius-sm)] px-2.5 py-1.5', it.bg)}>
+                <span className="text-[10px] text-muted uppercase font-medium">{it.label}</span>
+                <span className={cn('text-base font-bold tabular', it.color)}>{it.pct}%</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Score bar — only with claim data */}
+      {/* NLI Probability Distribution Bar */}
+      <div className="flex flex-col gap-1.5 mb-4">
+        <div className="flex justify-between text-xs text-muted">
+          <span>NLI Probability Distribution</span>
+          <span className="tabular">{entPct}% Entailment · {neuPct}% Neutral · {conPct}% Contradiction</span>
+        </div>
+        <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-hover">
+          <span className="bg-ok-line transition-all" style={{ width: `${entPct}%` }} title={`Entailment ${entPct}%`} />
+          <span className="bg-line-bright transition-all" style={{ width: `${neuPct}%` }} title={`Neutral ${neuPct}%`} />
+          <span className="bg-cherry transition-all" style={{ width: `${conPct}%` }} title={`Contradiction ${conPct}%`} />
+        </div>
+      </div>
+
+      {/* Claim Breakdown Badges */}
       {sc && total > 0 && (
-        <div className="flex flex-col gap-2">
-          <div className="flex h-3 gap-0.5 overflow-hidden rounded-full">
-            {c.supported > 0 && <span className="rounded-l-full bg-ok-line" style={{ flex: c.supported }} />}
-            {c.weak > 0 && <span className="bg-warn" style={{ flex: c.weak }} />}
-            {c.unverified > 0 && <span className="bg-line-bright" style={{ flex: c.unverified }} />}
-            {c.contradicted > 0 && <span className="rounded-r-full bg-cherry" style={{ flex: c.contradicted }} />}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+          <div className="flex flex-wrap gap-2">
+            {claimItems.map((it) => (
+              <div key={it.label} className={cn('flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2 py-1', it.bg)}>
+                <Icon name={it.icon} size={12} className={it.color} />
+                <span className={cn('text-xs font-semibold tabular', it.color)}>{it.value}</span>
+                <span className="text-[11px] text-muted">{it.label}</span>
+              </div>
+            ))}
           </div>
-          <div className="flex justify-between text-xs text-faint">
-            <span>{c.supported} of {total} claims supported</span>
-            <span>Numbers {sc.numbers_ok ? '✓' : '✗'} · Quotes {sc.quotes_ok ? '✓' : '✗'}</span>
-          </div>
+          <span className="text-xs text-faint">
+            Numbers {sc.numbers_ok ? '✓' : '✗'} · Quotes {sc.quotes_ok ? '✓' : '✗'}
+          </span>
         </div>
       )}
 
       {/* No support message */}
-      {noSupport && !sc && (
-        <p className="m-0 rounded-[var(--radius-sm)] bg-hover px-4 py-3 text-sm text-muted">
-          No matching passages found in your documents. Try rephrasing, or check that the relevant document was uploaded.
+      {noSupport && (
+        <p className="m-0 mt-3 rounded-[var(--radius-sm)] bg-hover px-4 py-3 text-sm text-muted">
+          No matching passages were found in these documents for this question.
         </p>
       )}
     </div>
@@ -149,10 +178,59 @@ function ResultsSummary({ result }) {
 /* ───── Main Dashboard ───── */
 
 export default function Dashboard({ params, search }) {
-  const sid = params.sessionId
-  const detail = useApi(() => api.session(sid), [sid])
+  const [resolvedSid, setResolvedSid] = useState(() => {
+    return params.sessionId || (typeof window !== 'undefined' ? localStorage.getItem('argus_active_session') : null)
+  })
+
+  // Auto-resolve session if opened with bare /dashboard or if active session is stored
+  useEffect(() => {
+    if (params.sessionId) {
+      setResolvedSid(params.sessionId)
+      try { localStorage.setItem('argus_active_session', params.sessionId) } catch {}
+    } else if (!resolvedSid) {
+      // Find the latest session or dataset
+      (async () => {
+        try {
+          const sessList = await api.sessions()
+          if (sessList && sessList.length > 0) {
+            const latest = sessList[0]._id
+            setResolvedSid(latest)
+            try { localStorage.setItem('argus_active_session', latest) } catch {}
+            navigate(`/dashboard/${latest}`, { replace: true })
+            return
+          }
+          const dsList = await api.datasets()
+          if (dsList && dsList.length > 0) {
+            const first = pickDemo(dsList) || dsList[0]
+            await startChat(first._id)
+          } else {
+            navigate('/upload')
+          }
+        } catch (e) {
+          console.error('Failed to resolve dashboard session', e)
+        }
+      })()
+    } else {
+      // We have resolvedSid from localStorage, sync URL
+      navigate(`/dashboard/${resolvedSid}`, { replace: true })
+    }
+  }, [params.sessionId, resolvedSid])
+
+  const sid = params.sessionId || resolvedSid
+  const detail = useApi(() => api.session(sid), [sid], { enabled: Boolean(sid) })
   const session = detail.data?.session
   const datasetId = session?.dataset_id
+
+  // Persist session & dataset whenever loaded
+  useEffect(() => {
+    if (sid) {
+      try { localStorage.setItem('argus_active_session', sid) } catch {}
+    }
+    if (datasetId) {
+      try { localStorage.setItem('argus_active_dataset', datasetId) } catch {}
+    }
+  }, [sid, datasetId])
+
   const ds = useApi(() => api.dataset(datasetId), [datasetId], { enabled: Boolean(datasetId) })
   const docs = useApi(() => api.documents(datasetId), [datasetId], { enabled: Boolean(datasetId) })
   const { setAnswering, setLastDone } = useActivity()
@@ -166,16 +244,21 @@ export default function Dashboard({ params, search }) {
   const abort = useRef(null)
   const textareaRef = useRef(null)
 
-  const autoResize = (el) => { if (!el) return; el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' }
+  const autoResize = (el) => {
+    if (!el) return
+    el.style.height = 'auto'
+    const newHeight = Math.min(Math.max(el.scrollHeight, 52), 380)
+    el.style.height = newHeight + 'px'
+  }
 
   const turns = detail.data?.turns ?? []
   const current = turns.find((t) => (t.query_id ?? t._id) === selected) ?? turns[turns.length - 1]
 
   function submit(question) {
     const q = question.trim()
-    if (!q || pending) return
+    if (!q || pending || !sid) return
     setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    if (textareaRef.current) textareaRef.current.style.height = '52px'
     setPending({ question: q, stages: [{ stage: 'searching' }], error: null })
     abort.current = ask(sid, q, {
       onStage: (e) => {
@@ -211,7 +294,7 @@ export default function Dashboard({ params, search }) {
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [turns.length, pending?.stages.length])
 
   if (detail.loading && !detail.data) {
-    return <main className="flex items-center justify-center py-28"><Spinner size={28} /><span className="ml-3 text-muted">Loading dashboard…</span></main>
+    return <main className="flex items-center justify-center py-28"><Spinner size={28} /><span className="ml-3 text-muted">Loading workspace…</span></main>
   }
   if (detail.error) {
     return <main className="mx-auto max-w-[800px] px-8 py-16"><p role="alert" className="text-[#e0857c]">Could not load: {detail.error.message}</p></main>
@@ -220,23 +303,7 @@ export default function Dashboard({ params, search }) {
 
   return (
     <div className="flex h-[calc(100vh-57px)] overflow-hidden">
-      {/* ── Left: Evidence Panel ── */}
-      <aside aria-label="Evidence" className="flex w-[420px] flex-none flex-col gap-4 overflow-y-auto border-r border-border bg-[#1a1818] px-6 pt-6 pb-10 max-lg:hidden xl:w-[480px]">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="m-0 flex items-center gap-2 font-display text-2xl font-semibold">
-            <Icon name="eye" size={20} className="text-cherry" />
-            Evidence
-          </h2>
-          <div className="flex items-center gap-2">
-            {current && <span className="text-xs text-faint">{plural(current.evidence?.length ?? 0, 'passage')}</span>}
-            <HelpButton topic="Evidence shows the source passages used to verify the answer. Each chunk is ranked by relevance. The passage view highlights the exact quote that supports or contradicts a claim. Color coding: green = supports, red = contradicts, gray = no match." />
-          </div>
-        </div>
-        {current && <p className="m-0 -mt-1 truncate text-xs text-muted">For: {current.question}</p>}
-        <EvidencePanel turn={current} activeRef={activeRef} onRef={setActiveRef} />
-      </aside>
-
-      {/* ── Main content ── */}
+      {/* ── Main content (Center / Workspace) ── */}
       <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
         {/* Stats strip */}
         {ds.data && docs.data && (
@@ -252,23 +319,58 @@ export default function Dashboard({ params, search }) {
           </div>
         )}
 
-        {/* Question bar */}
-        <div className="border-b border-border bg-noir/50 px-6 py-4 sm:px-8">
+        {/* Question bar (Clean modern pill card, no square outline rings, expands for full pasted text) */}
+        <div className="border-b border-border/70 bg-noir/80 backdrop-blur-sm px-6 py-4 sm:px-8">
           <form onSubmit={(e) => { e.preventDefault(); submit(input) }} className="mx-auto max-w-[900px]">
-            <label htmlFor="ask" className="mb-2 flex items-center gap-2 text-sm font-medium text-soft">
-              <Icon name="search" size={14} />Ask about your documents
-              <HelpButton topic="Type a question. Argus retrieves relevant passages, generates an answer with citations, then verifies every claim using NLI. Supported answers are shown; contradicted ones are withheld." className="ml-1" />
-            </label>
-            <div className="flex items-end gap-3 rounded-[var(--radius-md)] border border-line-strong bg-card py-2.5 pr-2.5 pl-5 transition-colors focus-within:border-line-bright focus-within:ring-1 focus-within:ring-line-bright/30">
-              <Textarea id="ask" rows={1} value={input} onChange={(e) => { setInput(e.target.value); autoResize(e.target) }} disabled={Boolean(pending)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(input) } }}
-                placeholder="What would you like to know?"
+            <div className="mb-2 flex items-center justify-between text-xs text-muted">
+              <span className="flex items-center gap-1.5 font-medium text-soft">
+                <Icon name="search" size={13} className="text-cherry" />
+                Ask about your documents
+              </span>
+              <span className="hidden sm:inline text-faint text-[11px]">Shift + Enter for new line · Enter to send</span>
+            </div>
+
+            <div className="relative flex flex-col rounded-2xl border border-border bg-card shadow-sm transition-all focus-within:border-cotton/40 focus-within:bg-[#201d1c]">
+              <Textarea
+                id="ask"
+                rows={1}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value)
+                  autoResize(e.target)
+                }}
+                onPaste={(e) => {
+                  setTimeout(() => autoResize(textareaRef.current), 0)
+                }}
+                disabled={Boolean(pending)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    submit(input)
+                  }
+                }}
+                placeholder="Ask any question about your documents... (paste or type freely)"
                 ref={textareaRef}
-                className="max-h-[160px] text-[15px] [&]:outline-none [&]:focus-visible:outline-none" />
-              <Button type="submit" size="sm" disabled={Boolean(pending) || !input.trim()}>
-                {pending ? <Spinner /> : <Icon name="search" size={16} />}
-                Ask
-              </Button>
+                style={{ minHeight: '52px', maxHeight: '380px', outline: 'none', outlineStyle: 'none', outlineWidth: 0, boxShadow: 'none', border: 'none', WebkitTapHighlightColor: 'transparent' }}
+                className="w-full resize-none bg-transparent px-5 pt-3.5 pb-2 text-[15px] leading-relaxed text-cotton placeholder:text-muted/60 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 border-0 shadow-none overflow-y-auto"
+              />
+
+              <div className="flex items-center justify-between px-3.5 pb-2.5 pt-1">
+                <div className="flex items-center gap-2 text-xs text-faint">
+                  {input.trim().length > 0 && (
+                    <span className="tabular">{input.trim().length} chars</span>
+                  )}
+                </div>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={Boolean(pending) || !input.trim()}
+                  className="rounded-xl px-4 py-2 font-medium bg-cherry text-cotton hover:bg-maroon transition-all shadow-sm"
+                >
+                  {pending ? <Spinner /> : <Icon name="search" size={15} strokeWidth={2.2} />}
+                  <span>Ask</span>
+                </Button>
+              </div>
             </div>
           </form>
         </div>
@@ -303,6 +405,22 @@ export default function Dashboard({ params, search }) {
           <div ref={bottom} />
         </div>
       </main>
+
+      {/* ── Right: Evidence Panel ── */}
+      <aside aria-label="Evidence" className="flex w-[420px] flex-none flex-col gap-4 overflow-y-auto border-l border-border bg-[#1a1818] px-6 pt-6 pb-10 max-lg:hidden xl:w-[480px]">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="m-0 flex items-center gap-2 font-display text-2xl font-semibold">
+            <Icon name="eye" size={20} className="text-cherry" />
+            Evidence
+          </h2>
+          <div className="flex items-center gap-2">
+            {current && <span className="text-xs text-faint">{plural(current.evidence?.length ?? 0, 'passage')}</span>}
+            <HelpButton topic="Evidence shows the source passages used to verify the answer. Each chunk is ranked by relevance. The passage view highlights the exact quote that supports or contradicts a claim. Color coding: green = supports, red = contradicts, gray = no match." />
+          </div>
+        </div>
+        {current && <p className="m-0 -mt-1 truncate text-xs text-muted">For: {current.question}</p>}
+        <EvidencePanel turn={current} activeRef={activeRef} onRef={setActiveRef} />
+      </aside>
     </div>
   )
 }

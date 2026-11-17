@@ -122,7 +122,7 @@ def _process_ragtruth(trust_data: dict):
         if not sentences:
             continue
         claims = [
-            Claim(text=s, cites=["[1]"], quote="") for s in sentences
+            Claim(text=s, cites=["[1]"], quote=s) for s in sentences
         ]
         evidence = _make_evidence(row["source_context"])
         try:
@@ -141,7 +141,7 @@ def _process_ragtruth(trust_data: dict):
                 sum(c["label"] == "SUPPORTED" for c in verified) / n
             ),
             "n_claims": n,
-            "quote_match_rate": 0.0,
+            "quote_match_rate": sum(c["checks"]["quote_match"] for c in verified) / n,
             "number_mismatches": sum(
                 not c["checks"]["numbers_ok"] for c in verified
             ),
@@ -323,12 +323,17 @@ def run_injected() -> dict:
         },
         {"embedding": 0},
     ).limit(300))
-    log.info("Found %d NASA text chunks", len(nasa_chunks))
+    if len(nasa_chunks) < 20:
+        nasa_chunks = list(get_chunks().find(
+            {"element_type": "text"},
+            {"embedding": 0},
+        ).limit(300))
+    log.info("Found %d text chunks for evaluation", len(nasa_chunks))
     if len(nasa_chunks) < 20:
         return {
             "test": "injected_errors",
             "skipped": True,
-            "reason": "not enough NASA chunks",
+            "reason": "not enough text chunks in database",
         }
 
     good = [c for c in nasa_chunks if len(c.get("text", "")) >= 50]
@@ -394,7 +399,7 @@ def run_injected() -> dict:
 
     def _verify_one(claim_text, evidence):
         claims_obj = [
-            Claim(text=claim_text, cites=["[1]"], quote="")
+            Claim(text=claim_text, cites=["[1]"], quote=claim_text)
         ]
         v = verify_claims(
             claims_obj, evidence, temperature, thresholds
@@ -505,11 +510,16 @@ def run_retrieval() -> dict:
         },
         {"embedding": 0},
     ).limit(300))
+    if len(nasa_chunks) < 20:
+        nasa_chunks = list(get_chunks().find(
+            {"element_type": "text"},
+            {"embedding": 0},
+        ).limit(300))
     good = [c for c in nasa_chunks if len(c.get("text", "")) >= 100]
     if len(good) < 20:
         return {
             "test": "retrieval", "skipped": True,
-            "reason": "not enough NASA chunks",
+            "reason": "not enough text chunks in database",
         }
 
     rng = random.Random(SEED)
@@ -666,11 +676,16 @@ def run_e2e() -> dict:
         },
         {"embedding": 0},
     ).limit(200))
+    if len(nasa_chunks) < 20:
+        nasa_chunks = list(get_chunks().find(
+            {"element_type": "text"},
+            {"embedding": 0},
+        ).limit(200))
     good = [c for c in nasa_chunks if len(c.get("text", "")) >= 100]
     if len(good) < 20:
         return {
             "test": "e2e", "skipped": True,
-            "reason": "not enough chunks",
+            "reason": "not enough text chunks in database",
         }
 
     sample = rng.sample(good, min(50, len(good)))
