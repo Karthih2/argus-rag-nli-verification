@@ -15,3 +15,13 @@ def test_citable_excludes_neighbours_and_sorts_by_rerank():
         {"_ref": "C2", "_rerank_score": 0.9},
     ]
     assert [c["_ref"] for c in citable(ev)] == ["C2", "C1"]
+
+
+def test_table_row_groups_are_not_duplicates_but_whole_table_is():
+    from backend.retrieval.context import _overlap
+
+    hdr = "Table 2"
+    g1 = {"element_type": "table", "text": f"{hdr}\nRow 1: Type = A, Years = 7\nRow 2: Type = B, Years = 6"}
+    g2 = {"element_type": "table", "text": f"{hdr}\nRow 3: Type = C, Years = 5\nRow 4: Type = D, Years = 4"}
+    full = {"element_type": "table_full", "text": g1["text"] + "\n" + g2["text"].split("\n", 1)[1]}
+    assert _overlap(g1, g2) <= 0.5 and _overlap(g1, full) == 1.0

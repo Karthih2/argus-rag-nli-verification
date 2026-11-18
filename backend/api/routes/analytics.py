@@ -6,12 +6,12 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from fastapi import APIRouter, Query
 
-from backend.calibration.trust_model import load_trust_json
+from backend.calibration.trust_model import calibration_info
 from backend.db.client import queries
 from backend.verification.aggregate import DECISIONS
 
 router = APIRouter(tags=["analytics"])
-STAGES = ("retrieve", "rerank", "llm", "verify")
+STAGES = ("retrieve", "llm", "verify")
 TRUST_BINS = 10
 
 
@@ -34,23 +34,12 @@ def analytics(dataset_id: str | None = None, days: int = Query(14, ge=1, le=365)
 
 @router.get("/trust-info")
 def trust_info():
-    """Trust model metadata and test metrics from trust.json (None if not fitted)."""
-    data = load_trust_json()
-    if not data:
-        return {"fitted": False}
-    return {
-        "fitted": True,
-        "version": data.get("version"),
-        "fit_date": data.get("fit_date"),
-        "temperature": data.get("temperature"),
-        "thresholds": data.get("thresholds"),
-        "metrics": data.get("metrics"),
-        "data_sources": data.get("data_sources"),
-    }
+    """Calibration in use: version, thresholds (fitted or fallback), trust-model test metrics."""
+    return calibration_info()
 
 
 def _totals(rows: list[dict]) -> dict:
-    trust = [r["trust"] for r in rows if r.get("decision") != "NO_SUPPORT"]
+    trust = [r["trust"] for r in rows if r.get("trust") is not None]
     total_ms = [r["latency_ms"]["total"] for r in rows if r.get("latency_ms")]
     return {
         "questions": len(rows),
@@ -77,8 +66,8 @@ def _per_day(rows: list[dict], days: int) -> list[dict]:
 def _trust_hist(rows: list[dict]) -> list[int]:
     bins = [0] * TRUST_BINS
     for r in rows:
-        if r.get("decision") != "NO_SUPPORT":
-            bins[min(int(r.get("trust", 0)) // 10, TRUST_BINS - 1)] += 1
+        if r.get("trust") is not None:
+            bins[min(int(r["trust"]) // 10, TRUST_BINS - 1)] += 1
     return bins
 
 

@@ -9,12 +9,13 @@ import { Display, Spinner, Textarea } from '../components/ui/misc'
 import { AnswerTurn, PendingTurn, stageText } from '../features/answer'
 import { EvidencePanel } from '../features/evidence'
 import { useActivity } from '../lib/activity'
-import { startChat } from '../lib/chat'
+import { pickDemo, startChat } from '../lib/chat'
 import { plural } from '../lib/format'
 import { navigate } from '../lib/router'
 import { cn } from '../lib/utils'
+import { nliSplit, trustBand } from '../lib/verdicts'
 
-const STAGE_PROGRESS = { searching: 0.15, reading: 0.3, drafting: 0.45, checking: 0.7, repairing: 0.85, done: 1 }
+const STAGE_PROGRESS = { searching: 0.15, reading: 0.3, drafting: 0.5, checking: 0.8, done: 1 }
 
 /* ───── Stats cards at top ───── */
 
@@ -44,7 +45,7 @@ function DashboardStats({ ds, docs }) {
       <StatCard icon="layers" label="Pages" value={ds.page_count} helpText="Total pages across all documents." />
       <StatCard icon="hash" label="Chunks" value={totalChunks} helpText="Searchable text chunks created from your documents. Each chunk is an embeddable unit used for retrieval." />
       <StatCard icon="table" label="Tables" value={totalTables} helpText="Tables extracted from documents. Each row becomes a verifiable fact with column headers attached." />
-      <StatCard icon="image" label="Images" value={totalImages} helpText="Charts and photos extracted. Labels are OCR'd and checked against source text." />
+      <StatCard icon="image" label="Images" value={totalImages} helpText="Charts and photos found in the documents. Their captions are searchable; the image itself is not read." />
     </div>
   )
 }
@@ -57,8 +58,8 @@ function ResultsSummary({ result }) {
   const noSupport = result.decision === 'NO_SUPPORT'
   const blocked = result.decision === 'BLOCK'
 
-  // Always show verdict panel — even without score_card
-  const trust = result.trust ?? 0
+  const trust = result.trust
+  const band = trustBand(trust)
   const c = sc?.claims ?? { supported: 0, weak: 0, unverified: 0, contradicted: 0 }
   const total = c.supported + c.weak + c.unverified + c.contradicted
 
@@ -67,15 +68,17 @@ function ResultsSummary({ result }) {
     ACCEPT_LOW_CONFIDENCE: { label: 'Partly Verified', color: 'text-warn', icon: 'alert', desc: 'Claims supported by passages, some with lower confidence' },
     WARN: { label: 'Statements Need Review', color: 'text-warn', icon: 'alert', desc: 'Some statements could not be verified against the text' },
     BLOCK: { label: 'Withheld', color: 'text-[#e0857c]', icon: 'ban', desc: 'Answer withheld — contains claims that contradict the source' },
-    NO_SUPPORT: { label: 'No Support', color: 'text-muted', icon: 'search', desc: 'No relevant passages found in documents for this question' },
+    NO_SUPPORT: { label: 'Not in documents', color: 'text-muted', icon: 'search', desc: 'The retrieved passages do not answer this question' },
   }
   const verdict = DECISIONS[result.decision] ?? DECISIONS.NO_SUPPORT
 
-  // 3-way NLI probabilities
-  const entProb = sc?.mean_support ?? sc?.min_support ?? 0
-  const conProb = sc?.mean_contra ?? 0
-  const neuProb = sc?.mean_neutral ?? Math.max(0, Math.round((1.0 - entProb - conProb) * 1000) / 1000)
+  // Mean NLI split over the claims (each claim's split comes from one premise and sums to 1)
+  const nli = nliSplit(result)
+  const entProb = nli?.entailment ?? 0
+  const neuProb = nli?.neutral ?? 0
+  const conProb = nli?.contradiction ?? 0
   const probSum = (entProb + neuProb + conProb) || 1
+  const calibration = sc?.calibration
 
   const entPct = Math.round((entProb / probSum) * 100)
   const neuPct = Math.round((neuProb / probSum) * 100)
@@ -101,17 +104,14 @@ function ResultsSummary({ result }) {
           <Icon name="shield" size={18} className="text-cherry" />
           NLI Verification & Trust Breakdown
         </h3>
-        <HelpButton topic="NLI verification tests every claim in the answer against source passages: Entailment = factually supported. Neutral = cannot be confirmed or denied. Contradiction = conflicts with the source. Trust score is a calibrated confidence probability." />
+        <HelpButton topic="Every claim is checked by an NLI model against its source passage (and the closest sentences in it). Entailment = the source supports it. Neutral = the source neither supports nor denies it. Contradiction = the source says otherwise. The numbers are averages over the claims. Trust = the trust model's estimate (0-100) that the whole answer is correct." />
       </div>
 
       {/* Verdict + Trust */}
       <div className="mb-5 flex flex-wrap items-center gap-6">
         <div className="flex flex-col items-center gap-1.5">
-          <span className={cn(
-            'text-[48px] font-semibold leading-none tabular',
-            trust >= 75 ? 'text-ok' : trust >= 50 ? 'text-warn' : 'text-[#e0857c]',
-          )}>{trust || '—'}</span>
-          <span className="text-xs text-muted">Trust Score</span>
+          <span className={cn('text-[48px] font-semibold leading-none tabular', band?.text ?? 'text-muted')}>{trust ?? '—'}</span>
+          <span className="text-xs text-muted">Trust score</span>
         </div>
         <div className="hidden h-16 w-px bg-border sm:block" />
         <div className="flex flex-1 flex-col gap-3 min-w-[240px]">
@@ -123,19 +123,19 @@ function ResultsSummary({ result }) {
           </div>
 
           {/* 3 NLI Scores */}
-          <div className="grid grid-cols-3 gap-2">
+          {nli && <div className="grid grid-cols-3 gap-2">
             {nliItems.map((it) => (
               <div key={it.label} className={cn('flex flex-col rounded-[var(--radius-sm)] px-2.5 py-1.5', it.bg)}>
                 <span className="text-[10px] text-muted uppercase font-medium">{it.label}</span>
                 <span className={cn('text-base font-bold tabular', it.color)}>{it.pct}%</span>
               </div>
             ))}
-          </div>
+          </div>}
         </div>
       </div>
 
       {/* NLI Probability Distribution Bar */}
-      <div className="flex flex-col gap-1.5 mb-4">
+      {nli && <div className="flex flex-col gap-1.5 mb-4">
         <div className="flex justify-between text-xs text-muted">
           <span>NLI Probability Distribution</span>
           <span className="tabular">{entPct}% Entailment · {neuPct}% Neutral · {conPct}% Contradiction</span>
@@ -145,7 +145,7 @@ function ResultsSummary({ result }) {
           <span className="bg-line-bright transition-all" style={{ width: `${neuPct}%` }} title={`Neutral ${neuPct}%`} />
           <span className="bg-cherry transition-all" style={{ width: `${conPct}%` }} title={`Contradiction ${conPct}%`} />
         </div>
-      </div>
+      </div>}
 
       {/* Claim Breakdown Badges */}
       {sc && total > 0 && (
@@ -161,6 +161,7 @@ function ResultsSummary({ result }) {
           </div>
           <span className="text-xs text-faint">
             Numbers {sc.numbers_ok ? '✓' : '✗'} · Quotes {sc.quotes_ok ? '✓' : '✗'}
+            {calibration && ` · Thresholds ${calibration.fallback?.length ? 'fallback' : `calibrated v${calibration.version}`}`}
           </span>
         </div>
       )}
@@ -168,7 +169,7 @@ function ResultsSummary({ result }) {
       {/* No support message */}
       {noSupport && (
         <p className="m-0 mt-3 rounded-[var(--radius-sm)] bg-hover px-4 py-3 text-sm text-muted">
-          No matching passages were found in these documents for this question.
+          The closest passages (right) don't answer this question, so no answer is given and there is nothing to score.
         </p>
       )}
     </div>
@@ -247,7 +248,7 @@ export default function Dashboard({ params, search }) {
   const autoResize = (el) => {
     if (!el) return
     el.style.height = 'auto'
-    const newHeight = Math.min(Math.max(el.scrollHeight, 52), 380)
+    const newHeight = Math.min(Math.max(el.scrollHeight, 52), 240)
     el.style.height = newHeight + 'px'
   }
 
@@ -268,7 +269,7 @@ export default function Dashboard({ params, search }) {
       },
       onResult: async (r) => {
         setAnswering(null)
-        setLastDone({ title: r.decision === 'BLOCK' ? 'Answer withheld' : r.decision === 'NO_SUPPORT' ? 'Not in documents' : 'Answer checked', meta: r.decision === 'NO_SUPPORT' ? '' : `trust ${r.trust}`, progress: 1, tone: r.decision === 'BLOCK' ? 'warn' : 'ok' })
+        setLastDone({ title: r.decision === 'BLOCK' ? 'Answer withheld' : r.decision === 'NO_SUPPORT' ? 'Not in documents' : 'Answer checked', meta: r.trust == null ? '' : `trust ${r.trust}`, progress: 1, tone: r.decision === 'BLOCK' ? 'warn' : 'ok' })
         await detail.reload()
         setSelected(r.query_id)
         setActiveRef(r.claims?.[0]?.highlight?.ref ?? r.evidence?.[0]?.ref ?? null)
@@ -304,7 +305,8 @@ export default function Dashboard({ params, search }) {
   return (
     <div className="flex h-[calc(100vh-57px)] overflow-hidden">
       {/* ── Main content (Center / Workspace) ── */}
-      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto">
+      <main className="flex min-w-0 flex-1 flex-col">
+        <div className="flex-1 overflow-y-auto">
         {/* Stats strip */}
         {ds.data && docs.data && (
           <div className="border-b border-border px-6 pt-5 pb-5 sm:px-8">
@@ -319,8 +321,39 @@ export default function Dashboard({ params, search }) {
           </div>
         )}
 
-        {/* Question bar (Clean modern pill card, no square outline rings, expands for full pasted text) */}
-        <div className="border-b border-border/70 bg-noir/80 backdrop-blur-sm px-6 py-4 sm:px-8">
+        {/* Answers area */}
+        <div className="mx-auto flex w-full max-w-[900px] flex-1 flex-col gap-6 px-6 pt-6 pb-10 sm:px-8">
+          {turns.length === 0 && !pending && (
+            <div className="flex flex-col items-center gap-4 py-16 text-center">
+              <div className="grid h-20 w-20 place-items-center rounded-2xl border border-line-strong bg-hover text-muted">
+                <Icon name="chat" size={36} strokeWidth={1.3} />
+              </div>
+              <Display className="text-3xl sm:text-4xl">Ask your first question</Display>
+              <p className="m-0 max-w-[45ch] text-base text-muted">Type a question below. Every claim in the answer is verified against your documents using NLI.</p>
+            </div>
+          )}
+
+          {turns.map((t) => {
+            const qid = t.query_id ?? t._id
+            const isCurrent = current && qid === (current.query_id ?? current._id)
+            return (
+              <div key={qid} className="flex flex-col gap-4">
+                <AnswerTurn turn={t} selected={isCurrent} activeRef={activeRef}
+                  onSelect={() => { setSelected(qid); if (!isCurrent) setActiveRef(null) }}
+                  onCite={(ref) => { setSelected(qid); setActiveRef(ref) }} />
+                {/* Layered NLI results below each answer */}
+                {isCurrent && <ResultsSummary result={t} />}
+              </div>
+            )
+          })}
+
+          {pending && <PendingTurn {...pending} onRetry={() => { const q = pending.question; setPending(null); setTimeout(() => submit(q)) }} />}
+          <div ref={bottom} />
+        </div>
+        </div>
+
+        {/* Question bar, pinned to the bottom like a chat; it grows for long pasted text */}
+        <div className="flex-none border-t border-border/70 bg-noir/95 px-6 pt-3 pb-4 backdrop-blur-sm sm:px-8">
           <form onSubmit={(e) => { e.preventDefault(); submit(input) }} className="mx-auto max-w-[900px]">
             <div className="mb-2 flex items-center justify-between text-xs text-muted">
               <span className="flex items-center gap-1.5 font-medium text-soft">
@@ -351,7 +384,7 @@ export default function Dashboard({ params, search }) {
                 }}
                 placeholder="Ask any question about your documents... (paste or type freely)"
                 ref={textareaRef}
-                style={{ minHeight: '52px', maxHeight: '380px', outline: 'none', outlineStyle: 'none', outlineWidth: 0, boxShadow: 'none', border: 'none', WebkitTapHighlightColor: 'transparent' }}
+                style={{ minHeight: '52px', maxHeight: '240px', outline: 'none', outlineStyle: 'none', outlineWidth: 0, boxShadow: 'none', border: 'none', WebkitTapHighlightColor: 'transparent' }}
                 className="w-full resize-none bg-transparent px-5 pt-3.5 pb-2 text-[15px] leading-relaxed text-cotton placeholder:text-muted/60 outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 border-0 shadow-none overflow-y-auto"
               />
 
@@ -373,36 +406,6 @@ export default function Dashboard({ params, search }) {
               </div>
             </div>
           </form>
-        </div>
-
-        {/* Answers area */}
-        <div className="mx-auto flex w-full max-w-[900px] flex-1 flex-col gap-6 px-6 pt-6 pb-10 sm:px-8">
-          {turns.length === 0 && !pending && (
-            <div className="flex flex-col items-center gap-4 py-16 text-center">
-              <div className="grid h-20 w-20 place-items-center rounded-2xl border border-line-strong bg-hover text-muted">
-                <Icon name="chat" size={36} strokeWidth={1.3} />
-              </div>
-              <Display className="text-3xl sm:text-4xl">Ask your first question</Display>
-              <p className="m-0 max-w-[45ch] text-base text-muted">Type a question above. Every claim in the answer is verified against your documents using NLI.</p>
-            </div>
-          )}
-
-          {turns.map((t) => {
-            const qid = t.query_id ?? t._id
-            const isCurrent = current && qid === (current.query_id ?? current._id)
-            return (
-              <div key={qid} className="flex flex-col gap-4">
-                <AnswerTurn turn={t} risk={ds.data?.settings?.risk_alpha_accept} selected={isCurrent} activeRef={activeRef}
-                  onSelect={() => { setSelected(qid); if (!isCurrent) setActiveRef(null) }}
-                  onCite={(ref) => { setSelected(qid); setActiveRef(ref) }} />
-                {/* Layered NLI results below each answer */}
-                {isCurrent && <ResultsSummary result={t} />}
-              </div>
-            )
-          })}
-
-          {pending && <PendingTurn {...pending} onRetry={() => { const q = pending.question; setPending(null); setTimeout(() => submit(q)) }} />}
-          <div ref={bottom} />
         </div>
       </main>
 

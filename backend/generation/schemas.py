@@ -1,15 +1,20 @@
 """Pydantic models for LLM answer output."""
 
+import re
 from typing import Annotated
 
 from pydantic import BaseModel, BeforeValidator
 
+REF_RE = re.compile(r"\b[CN]\d+\b")
+
 
 def _coerce_cites(v: object) -> list[str]:
-    """LLM sometimes returns a bare string like 'C1' instead of ['C1']."""
-    if isinstance(v, str):
-        return [v]
-    return v  # type: ignore[return-value]
+    """Context refs from whatever shape the LLM returns: 'C1', '[C1]', 'C1, C2', ['[C2]'], None."""
+    if v is None:
+        return []
+    items = [v] if isinstance(v, str) else v if isinstance(v, list) else [str(v)]
+    refs = [r for item in items for r in REF_RE.findall(str(item).upper())]
+    return list(dict.fromkeys(refs))
 
 
 class Claim(BaseModel):

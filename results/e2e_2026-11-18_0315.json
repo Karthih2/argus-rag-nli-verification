@@ -1,0 +1,40 @@
+{
+  "dataset_id": "ds_nasa",
+  "answerable": {
+    "n": 50,
+    "decisions": {
+      "ACCEPT_LOW_CONFIDENCE": 5,
+      "ACCEPT": 43,
+      "WARN": 2
+    },
+    "verified_or_partly": {
+      "mean": 0.96,
+      "ci95": [
+        0.9,
+        1.0
+      ]
+    },
+    "missed_as_not_found": {
+      "mean": 0.0,
+      "ci95": [
+        0.0,
+        0.0
+      ]
+    },
+    "avg_trust": 88.2
+  },
+  "unanswerable": {
+    "n": 10,
+    "decisions": {
+      "NO_SUPPORT": 10
+    },
+    "correctly_not_answered": {
+      "mean": 1.0,
+      "ci95": [
+        1.0,
+        1.0
+      ]
+    }
+  },
+  "failed_calls": 0
+}

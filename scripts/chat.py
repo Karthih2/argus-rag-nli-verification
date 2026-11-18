@@ -39,29 +39,20 @@ def _ask() -> str:
 
 
 def _print(r: dict) -> None:
-    print(f"\n  [{r['decision']}] trust={r['trust']}")
-    if r["standalone_question"] != r["question"]:
-        print(f"  understood as: {r['standalone_question']}")
+    trust = "-" if r["trust"] is None else r["trust"]
+    print(f"\n  [{r['decision']}] trust={trust}")
     if r["blocked_reason"]:
         b = r["blocked_reason"]
         print(f"  WITHHELD. Draft said: {b['draft_claim']}\n  p.{b['page']} says: {b['evidence_text'][:200]}")
     elif r["answer"]:
         print(f"\n  {r['answer']}\n")
     for i, c in enumerate(r["claims"], 1):
-        notes = [
-            n
-            for n, bad in (
-                ("no quote", not c["checks"]["quote_match"]),
-                (c["checks"]["number_detail"], not c["checks"]["numbers_ok"]),
-                ("image-derived", c["checks"]["derived_only"]),
-            )
-            if bad
-        ]
+        s = c["scores"]
+        notes = [n for n, bad in (("no quote", not c["checks"]["quote_match"]),
+                                  (c["checks"]["number_detail"], not c["checks"]["numbers_ok"])) if bad]
         print(f"  [{SYMBOL[c['label']]}] {i}. {c['text'][:100]}")
-        print(
-            f"       support={c['support']:.2f} contra={c['contra']:.2f} p.{c['highlight'].get('page', '?')} "
-            f"{'(' + ', '.join(notes) + ')' if notes else ''}"
-        )
+        print(f"       ent={s['entailment']:.2f} neu={s['neutral']:.2f} con={s['contradiction']:.2f} "
+              f"p.{c['highlight'].get('page', '?')} {'(' + ', '.join(notes) + ')' if notes else ''}")
     for e in r["evidence"]:
         print(f"    {e['ref']}: {e['file_name']} p.{e['page']} ({e['type']}) rerank={e['rerank']:.2f}")
     print(f"  latency ms: {r['latency_ms']}\n")

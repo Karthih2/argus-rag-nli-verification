@@ -1,0 +1,42 @@
+{
+  "correct": {
+    "n": 100,
+    "counts": {
+      "SUPPORTED": 97,
+      "CONTRADICTED": 2,
+      "WEAKLY_SUPPORTED": 1
+    },
+    "not_supported": 0.03,
+    "contradicted": 0.02
+  },
+  "number_swap": {
+    "n": 22,
+    "counts": {
+      "CONTRADICTED": 19,
+      "UNVERIFIED": 3
+    },
+    "not_supported": 1.0,
+    "contradicted": 0.8636
+  },
+  "entity_swap": {
+    "n": 83,
+    "counts": {
+      "UNVERIFIED": 39,
+      "CONTRADICTED": 42,
+      "WEAKLY_SUPPORTED": 2
+    },
+    "not_supported": 1.0,
+    "contradicted": 0.506
+  },
+  "negation": {
+    "n": 30,
+    "counts": {
+      "CONTRADICTED": 24,
+      "UNVERIFIED": 5,
+      "WEAKLY_SUPPORTED": 1
+    },
+    "not_supported": 1.0,
+    "contradicted": 0.8
+  },
+  "false_alarm_rate": 0.03
+}

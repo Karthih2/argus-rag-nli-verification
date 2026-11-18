@@ -1,5 +1,7 @@
 """Extra checks beside NLI: evidence quote, quotations in the claim, numbers."""
 
+import re
+
 from rapidfuzz import fuzz
 
 from backend.common.numbers import missing_numbers
@@ -9,6 +11,7 @@ from backend.config import settings
 QUOTE_MIN = 0.90
 QUOTATION_MIN = 0.95
 MIN_QUOTATION_CHARS = 5
+ROW_LABEL = re.compile(r"(?m)^Row \d+:")  # table row numbers are layout, not evidence values
 
 
 def find_quote(quote: str, text: str) -> tuple[bool, float, list[int] | None]:
@@ -36,4 +39,5 @@ def quotations_ok(claim: str, text: str) -> bool:
 
 def number_problems(claim: str, evidence: str) -> str:
     """'' if every number in the claim is in the evidence, else a short explanation."""
+    evidence = ROW_LABEL.sub("", evidence)
     return "; ".join(f"claim says {n.raw}, not in the source" for n in missing_numbers(claim, evidence))

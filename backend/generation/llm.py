@@ -12,26 +12,31 @@ from backend.config import ROOT_DIR, settings
 log = logging.getLogger(__name__)
 
 CACHE_DIR = ROOT_DIR / "data" / "cache" / "llm"
+GROQ_MAX_RETRIES = 5
 
 
 @lru_cache(maxsize=1)
 def _client() -> Groq:
     if not settings.GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY is not set in .env")
-    return Groq(api_key=settings.GROQ_API_KEY)
+    # The SDK waits and retries on rate limits (429) and server errors, with exponential backoff.
+    return Groq(api_key=settings.GROQ_API_KEY, max_retries=GROQ_MAX_RETRIES)
 
 
 def call_llm(
     messages: list[dict],
     json_mode: bool = False,
     reasoning_effort: str | None = "medium",
-    use_cache: bool = True,
+    use_cache: bool | None = None,
 ) -> dict | str:
     """Call Groq, trying each model in GROQ_MODELS in order.
 
     JSON mode returns a dict with the model used under "_model"; text mode returns a string.
-    Cached by prompt hash so evaluation runs are repeatable.
+    Cached by prompt hash only when LLM_CACHE is on (the eval runner), so evaluation runs are
+    repeatable while live answers are always fresh.
     """
+    if use_cache is None:
+        use_cache = settings.LLM_CACHE
     for model in settings.groq_model_list:
         key = _cache_key(model, messages, json_mode)
         cached = _read_cache(key) if use_cache else None

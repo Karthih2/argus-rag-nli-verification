@@ -1,78 +1,127 @@
 {
-  "version": "2.0",
-  "fit_date": "2026-11-17T14:00:33.823705+00:00",
+  "version": "2026.11.18",
+  "fit_date": "2026-11-18T02:44:27.718980+00:00",
+  "nli_model": "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli",
   "data_sources": [
-    "FEVER-NLI 600-pair sample",
-    "wandb/RAGTruth-processed ~1500 subset"
+    "FEVER-NLI 600-pair sample (temperature)",
+    "wandb/RAGTruth-processed subset, 1500 answers"
   ],
-  "temperature": 1.0,
+  "temperature": 1.8995,
+  "risk": {
+    "verified": 0.05,
+    "low": 0.15,
+    "withhold": 0.02
+  },
   "nli_thresholds": {
-    "tau_accept": 0.70,
-    "tau_low": 0.50,
-    "tau_block": 0.70,
-    "tau_rel": 0.0
+    "tau_accept": {
+      "value": 0.62,
+      "met": true,
+      "n": 1256,
+      "errors": 49,
+      "bound": 0.0492
+    },
+    "tau_low": {
+      "value": 0.5,
+      "met": true,
+      "n": 1412,
+      "errors": 66,
+      "bound": 0.0571
+    },
+    "tau_block": {
+      "value": 0.85,
+      "met": true,
+      "n": 1965,
+      "errors": 28,
+      "bound": 0.0195
+    }
   },
   "trust_model": {
     "features": [
       "min_support",
       "mean_support",
-      "max_rel_contra",
-      "share_supported",
+      "max_contra",
       "n_claims",
-      "quote_match_rate",
-      "number_mismatches",
-      "top1_rerank",
-      "rerank_gap",
-      "repaired"
+      "number_mismatches"
     ],
     "mean": [
-      0.208131,
-      0.477688,
-      0.330914,
-      0.0,
-      7.602222,
-      0.0,
-      0.701111,
-      1.0,
-      0.0,
-      0.0
+      0.31728,
+      0.625394,
+      0.376763,
+      7.510067,
+      0.781879
     ],
     "scale": [
-      0.238397,
-      0.218445,
-      0.276998,
-      1.0,
-      4.040021,
-      1.0,
-      1.309198,
-      1.0,
-      1.0,
-      1.0
+      0.275942,
+      0.20487,
+      0.295233,
+      3.588356,
+      1.30241
     ],
     "coef": [
-      0.376013,
-      0.427935,
-      -0.105623,
-      0.0,
-      -0.09336,
-      0.0,
-      -0.103431,
-      0.0,
-      0.0,
-      0.0
+      0.541766,
+      0.54926,
+      0.020823,
+      -0.071023,
+      -0.10927
     ],
-    "intercept": 0.260569
-  },
-  "thresholds": {
-    "verified": 75,
-    "withheld": 30
+    "intercept": 0.321246,
+    "C": 0.046415888336127774
   },
   "metrics": {
-    "brier": 0.2214,
-    "auroc": 0.6718,
-    "ece": 0.0623,
-    "verified_observed_error": 0.1515,
-    "verified_target": 0.05,
-    "test_n": 300
+    "test_answers": 303,
+    "test_claims": 2236,
+    "brier": 0.2278,
+    "ece": 0.0679,
+    "auroc": 0.6779,
+    "reliability": [
+      {
+        "predicted": 0.1713,
+        "observed": 0.5,
+        "n": 8
+      },
+      {
+        "predicted": 0.2577,
+        "observed": 0.4286,
+        "n": 21
+      },
+      {
+        "predicted": 0.3528,
+        "observed": 0.3111,
+        "n": 45
+      },
+      {
+        "predicted": 0.4533,
+        "observed": 0.4237,
+        "n": 59
+      },
+      {
+        "predicted": 0.5504,
+        "observed": 0.5536,
+        "n": 56
+      },
+      {
+        "predicted": 0.6487,
+        "observed": 0.4516,
+        "n": 31
+      },
+      {
+        "predicted": 0.7518,
+        "observed": 0.5833,
+        "n": 24
+      },
+      {
+        "predicted": 0.8423,
+        "observed": 0.8462,
+        "n": 39
+      },
+      {
+        "predicted": 0.9135,
+        "observed": 0.9,
+        "n": 20
+      }
+    ],
+    "claim_accept_error": 0.0443,
+    "claim_accept_upper": 0.0551,
+    "claim_coverage": 0.5648
   }
 }

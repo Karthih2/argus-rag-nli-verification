@@ -174,7 +174,7 @@ export function HelpButton({ topic, className }) {
       </button>
       {open && (
         <div className="absolute top-10 right-0 z-50 w-72 rounded-[var(--radius-md)] border border-line-strong bg-raised px-4 py-3 text-sm text-soft shadow-lg">
-          {topic || 'Argus verifies every answer against source documents using Natural Language Inference. Upload PDFs or Word files, ask questions, and see evidence-backed results.'}
+          {topic || 'Argus verifies every answer against source documents using Natural Language Inference. Upload PDFs, ask questions, and see evidence-backed results.'}
         </div>
       )}
     </span>

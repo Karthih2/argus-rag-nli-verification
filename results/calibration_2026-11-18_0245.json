@@ -1,0 +1,58 @@
+{
+  "n_test": 303,
+  "brier": 0.2278,
+  "ece": 0.0679,
+  "reliability": [
+    {
+      "predicted": 0.1713,
+      "observed": 0.5,
+      "n": 8
+    },
+    {
+      "predicted": 0.2577,
+      "observed": 0.4286,
+      "n": 21
+    },
+    {
+      "predicted": 0.3528,
+      "observed": 0.3111,
+      "n": 45
+    },
+    {
+      "predicted": 0.4533,
+      "observed": 0.4237,
+      "n": 59
+    },
+    {
+      "predicted": 0.5504,
+      "observed": 0.5536,
+      "n": 56
+    },
+    {
+      "predicted": 0.6487,
+      "observed": 0.4516,
+      "n": 31
+    },
+    {
+      "predicted": 0.7518,
+      "observed": 0.5833,
+      "n": 24
+    },
+    {
+      "predicted": 0.8423,
+      "observed": 0.8462,
+      "n": 39
+    },
+    {
+      "predicted": 0.9135,
+      "observed": 0.9,
+      "n": 20
+    }
+  ],
+  "tau_accept": 0.62,
+  "claims": 2236,
+  "accepted": 1263,
+  "accepted_error": 0.0443,
+  "accepted_error_upper95": 0.0551,
+  "risk_target": 0.05
+}

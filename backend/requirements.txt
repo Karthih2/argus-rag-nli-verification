@@ -16,11 +16,11 @@ pymongo==4.18.3
 # Ingestion
 docling==2.141.0
 docling-core==2.103.1
-pdfplumber==0.11.10
 pypdfium2==5.14.0
 pillow==12.3.0
 pysbd==0.3.4
 rapidfuzz==3.14.5
+word2number==1.1  # "seven" -> 7 in the number check
 
 # Models and statistics
 torch==2.13.0
@@ -35,7 +35,7 @@ pyarrow==24.0.0
 # LLM
 groq==1.7.0
 
-# FEVER download
+# FEVER / RAGTruth downloads
 datasets==5.0.0
 
 # Dev

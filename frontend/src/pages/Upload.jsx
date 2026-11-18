@@ -1,4 +1,4 @@
-/** Upload page: user uploads 4-5 PDF/Word documents, then goes to processing. */
+/** Upload page: user uploads up to 5 PDFs, then goes to processing. */
 import { useRef, useState } from 'react'
 import { api } from '../api/client'
 import { Icon } from '../components/icon'
@@ -11,8 +11,8 @@ import { cn } from '../lib/utils'
 const MAX_MB = 50
 const MIN_FILES = 1
 const MAX_FILES = 5
-const ALLOWED_EXT = ['.pdf', '.doc', '.docx']
-const ACCEPT = 'application/pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const ALLOWED_EXT = ['.pdf']
+const ACCEPT = 'application/pdf,.pdf'
 
 function validateExt(name) {
   return ALLOWED_EXT.some((ext) => name.toLowerCase().endsWith(ext))
@@ -39,7 +39,7 @@ export default function Upload() {
 
   function addFiles(fileList) {
     const valid = [...fileList].filter((f) => validateExt(f.name))
-    if (!valid.length) { setError('Only PDF and Word files are accepted.'); return }
+    if (!valid.length) { setError('Only PDF files are accepted.'); return }
     setFiles((prev) => {
       const combined = [...prev, ...valid]
       if (combined.length > MAX_FILES) {
@@ -64,7 +64,7 @@ export default function Upload() {
     setUploading(true)
     setError(null)
     try {
-      const name = datasetName.trim() || files[0].name.replace(/\.(pdf|docx?|doc)$/i, '').replace(/[_-]+/g, ' ')
+      const name = datasetName.trim() || files[0].name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' ')
       const ds = await api.createDataset(name)
       await api.upload(ds._id, files)
       navigate(`/processing/${ds._id}`)
@@ -81,10 +81,10 @@ export default function Upload() {
         <div>
           <Display as="h1" className="text-[48px] sm:text-[56px]">Upload Documents</Display>
           <p className="mt-3 mb-0 text-lg text-muted">
-            Add up to {MAX_FILES} PDF or Word files. Argus will parse, embed, and index them for verified Q&A.
+            Add up to {MAX_FILES} PDF files. Argus will parse, embed, and index them for verified Q&A.
           </p>
         </div>
-        <HelpButton topic="Upload between 1 and 5 documents in PDF or Word format (max 50 MB each, 500 pages). After uploading, documents are automatically processed — parsed for text, tables, and images, then embedded and indexed for search." />
+        <HelpButton topic="Upload between 1 and 5 PDF documents (max 50 MB each, 500 pages). After uploading, documents are automatically processed — parsed for text, tables and figure captions, then embedded and indexed for search." />
       </div>
 
       {/* Dataset name */}
@@ -120,7 +120,7 @@ export default function Upload() {
         <Button variant="outline" onClick={() => input.current.click()}>
           <Icon name="file" size={16} />Choose files
         </Button>
-        <p className="m-0 text-xs text-faint">PDF or Word · Max {MAX_MB} MB per file · Up to {MAX_FILES} files</p>
+        <p className="m-0 text-xs text-faint">PDF · Max {MAX_MB} MB per file · Up to {MAX_FILES} files</p>
       </div>
 
       {/* File list */}

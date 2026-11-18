@@ -33,3 +33,28 @@ export const CLAIMS = {
   UNVERIFIED: { label: 'Not found', underline: '#8A867A', dashed: true },
   CONTRADICTED: { label: 'Contradicted', underline: '#B23A30', dashed: false },
 }
+
+/** Trust-score bands: the one place that decides how a trust number is coloured. */
+export const TRUST_BANDS = [
+  { min: 80, label: '80+', tone: 'ok', color: '#8DB87A', text: 'text-ok' },
+  { min: 50, label: '50–79', tone: 'warn', color: '#C9973A', text: 'text-warn' },
+  { min: 0, label: 'Below 50', tone: 'bad', color: '#57534C', text: 'text-[#e0857c]' },
+]
+export const trustBand = (trust) => (trust == null ? null : TRUST_BANDS.find((b) => trust >= b.min))
+
+/** Mean NLI split of an answer, from score_card.nli (older answers: rebuilt from their claims). */
+export function nliSplit(result) {
+  const nli = result?.score_card?.nli
+  if (nli) return nli
+  const claims = result?.claims ?? []
+  if (!claims.length) return null
+  const mean = (f) => claims.reduce((s, c) => s + f(c), 0) / claims.length
+  return {
+    entailment: mean((c) => c.scores?.entailment ?? c.support ?? 0),
+    neutral: mean((c) => c.scores?.neutral ?? c.neutral ?? 0),
+    contradiction: mean((c) => c.scores?.contradiction ?? c.contra ?? 0),
+  }
+}
+
+/** One claim's NLI split from its best-supporting premise (older answers: closest fields). */
+export const claimSplit = (c) => c.scores ?? { entailment: c.support ?? 0, neutral: c.neutral ?? 0, contradiction: c.contra ?? 0 }

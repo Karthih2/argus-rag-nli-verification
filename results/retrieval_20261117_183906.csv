@@ -1,2 +1,0 @@
-test,n_queries,vector.recall_at_5,vector.mrr,vector.n,keyword.recall_at_5,keyword.mrr,keyword.n,hybrid_rerank.recall_at_5,hybrid_rerank.mrr,hybrid_rerank.n
-retrieval,100,0.98,0.8812,100,0.98,0.8908,100,0.99,0.9508,100

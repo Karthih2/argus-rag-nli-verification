@@ -1,5 +1,6 @@
 /** Small SVG charts drawn from API data (no chart library needed). Width is responsive via viewBox. */
 import { DECISION_COLOR, DECISION_ORDER, DECISIONS } from '../../lib/verdicts'
+import { trustBand } from '../../lib/verdicts'
 
 const W = 600
 const H = 240
@@ -74,7 +75,7 @@ export function TrustHistogram({ bins }) {
   const max = niceMax(Math.max(1, ...bins))
   const step = (W - PAD.l - PAD.r) / bins.length
   const ph = (H - PAD.t - PAD.b) / max
-  const color = (i) => (i >= 8 ? '#8DB87A' : i >= 6 ? '#C9973A' : '#57534C')
+  const color = (i) => trustBand(i * 10).color
   return (
     <svg role="img" aria-label="Trust score histogram" viewBox={`0 0 ${W} ${H}`} className="w-full font-sans">
       <YGrid max={max} />

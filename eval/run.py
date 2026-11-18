@@ -1,834 +1,299 @@
-"""Evaluation runner.
+"""Evaluation runner, separate from the app.
 
-Usage:
-    python -m eval.run --all                # run every test
-    python -m eval.run --hallucination      # individual tests
-    python -m eval.run --calibration
-    python -m eval.run --injected
-    python -m eval.run --retrieval
-    python -m eval.run --e2e
+    python -m eval.run --all
+    python -m eval.run --hallucination --calibration --injected --retrieval --e2e
 
-Writes results/<name>_<date>.csv per test and results/summary_<date>.csv.
+Writes results/<test>_<date>.json for each test and results/REPORT.md for the run.
+LLM responses are cached (data/cache/llm) so reruns are repeatable.
 """
 
 import argparse
-import csv
 import json
 import logging
-import sys
+import random
+import re
+from collections import Counter
 from datetime import datetime, timezone
 
 import numpy as np
 
-from backend.config import ROOT_DIR
+from backend.config import ROOT_DIR, settings
 
-logging.basicConfig(
-    level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 RESULTS_DIR = ROOT_DIR / "results"
-RAGTRUTH_FILE = ROOT_DIR / "data" / "ragtruth" / "ragtruth_subset.json"
-TRUST_JSON = ROOT_DIR / "backend" / "calibration" / "trust.json"
 SEED = 42
+N_CHUNKS = 100
+N_E2E = 50
+UNANSWERABLE = [
+    "What is the capital city of Peru?",
+    "Who won the 1998 FIFA World Cup?",
+    "What is the boiling point of ethanol in Fahrenheit?",
+    "How many strings does a standard violin have?",
+    "Which company makes the PlayStation console?",
+    "What is the recipe for French onion soup?",
+    "Who wrote the novel Pride and Prejudice?",
+    "What is the population of Iceland?",
+    "How tall is Mount Kilimanjaro?",
+    "What is the exchange rate of the euro to the yen?",
+]
 
 
-def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+# ----------------------------------------------------------------- shared helpers
 
 
-def _flatten_csv_row(data: dict) -> dict:
-    """Flatten nested metrics into columns and encode lists as JSON."""
-    row = {}
+def _ragtruth_test():
+    from backend.calibration.trust_model import get_temperature, load_trust_json
+    from eval.ragtruth import split_groups, verified_examples
 
-    def add_values(values, prefix=""):
-        for key, value in values.items():
-            column = f"{prefix}.{key}" if prefix else key
-            if isinstance(value, dict):
-                add_values(value, column)
-            elif isinstance(value, list):
-                row[column] = json.dumps(value, default=str)
-            else:
-                row[column] = value
-
-    add_values(data)
-    return row
+    data = load_trust_json()
+    if not data or "trust_model" not in data:
+        raise RuntimeError("No fitted trust model. Run: python -m scripts.fit_trust")
+    return split_groups(verified_examples(get_temperature()))["test"], data["trust_model"]
 
 
-def _write_csv(path, rows: list) -> None:
-    fieldnames = list(dict.fromkeys(
-        key for row in rows for key in row
-    ))
-    with path.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-    log.info("Saved %s", path)
+def _trust_probs(examples, model) -> np.ndarray:
+    X = np.array([[e["features"].get(k, 0.0) for k in model["features"]] for e in examples], dtype=float)
+    z = (X - np.array(model["mean"])) / np.array(model["scale"])
+    return 1 / (1 + np.exp(-(z @ np.array(model["coef"]) + model["intercept"])))
 
 
-def _save(name: str, data: dict):
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = RESULTS_DIR / f"{name}_{_now()}.csv"
-    _write_csv(path, [_flatten_csv_row(data)])
-    return path
+def _sample_chunks(n: int, min_chars: int, dataset_id: str | None) -> list[dict]:
+    from backend.db.client import chunks
+
+    match = {"element_type": "text", **({"dataset_id": dataset_id} if dataset_id else {})}
+    pool = [c for c in chunks().find(match, {"embedding": 0}).limit(2000) if len(c["text"]) >= min_chars]
+    if len(pool) < 20:
+        raise RuntimeError("Not enough text chunks; ingest documents first (python -m scripts.seed_demo)")
+    return random.Random(SEED).sample(pool, min(n, len(pool)))
 
 
-def _save_summary_csv(results: dict) -> None:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    rows = [
-        _flatten_csv_row({"test": name, **result})
-        for name, result in results.items()
-    ]
-    _write_csv(
-        RESULTS_DIR / f"summary_{_now()}.csv", rows
-    )
+def _ask_llm(prompt: str) -> str:
+    from backend.generation.llm import call_llm
+
+    return call_llm([{"role": "user", "content": prompt}], json_mode=False, reasoning_effort="low").strip()
 
 
-def _make_evidence(ctx_text: str, chunk_id: str = "ctx"):
-    """Single-chunk fake evidence for RAGTruth evaluation."""
-    return [{
-        "_id": chunk_id,
-        "_ref": "[1]",
-        "_rerank_score": 1.0,
-        "text": ctx_text[:4000],
-        "element_type": "text",
-    }]
+def _question_for(chunk: dict) -> str:
+    return _ask_llm("Write ONE short factual question that this passage answers. Return ONLY the question.\n\n"
+                    f"Passage: {chunk['text'][:800]}")
 
 
-def _process_ragtruth(trust_data: dict):
-    """Process RAGTruth through NLI, return (X, y, groups).
-
-    Shared by hallucination and calibration tests.
-    """
-    import pysbd
-
-    from backend.calibration.trust_model import FALLBACK_NLI_THRESHOLDS
-    from backend.generation.schemas import Claim
-    from backend.verification.gate import verify_claims
-
-    rows = json.loads(RAGTRUTH_FILE.read_text(encoding="utf-8"))
-    temperature = trust_data["temperature"]
-    thresholds = FALLBACK_NLI_THRESHOLDS
-    segmenter = pysbd.Segmenter(language="en", clean=False)
-    feature_keys = trust_data["trust_model"]["features"]
-
-    X_rows, y_list, groups = [], [], []
-    for i, row in enumerate(rows):
-        response = row["response"]
-        faithful = not row["hallucination_spans"]
-        sentences = [
-            s.strip() for s in segmenter.segment(response) if s.strip()
-        ]
-        if not sentences:
-            continue
-        claims = [
-            Claim(text=s, cites=["[1]"], quote=s) for s in sentences
-        ]
-        evidence = _make_evidence(row["source_context"])
-        try:
-            verified = verify_claims(
-                claims, evidence, temperature, thresholds
-            )
-        except (ValueError, RuntimeError, KeyError):
-            continue
-        n = len(verified)
-        supports = [c["support"] for c in verified]
-        features = {
-            "min_support": min(supports),
-            "mean_support": sum(supports) / n,
-            "max_rel_contra": max(c["contra"] for c in verified),
-            "share_supported": (
-                sum(c["label"] == "SUPPORTED" for c in verified) / n
-            ),
-            "n_claims": n,
-            "quote_match_rate": sum(c["checks"]["quote_match"] for c in verified) / n,
-            "number_mismatches": sum(
-                not c["checks"]["numbers_ok"] for c in verified
-            ),
-            "top1_rerank": 1.0,
-            "rerank_gap": 0.0,
-            "repaired": 0,
-        }
-        X_rows.append([features[k] for k in feature_keys])
-        y_list.append(1 if faithful else 0)
-        groups.append(row.get("source_id", str(i)))
-        if (i + 1) % 200 == 0:
-            log.info("  processed %d / %d", i + 1, len(rows))
-
-    return np.array(X_rows), np.array(y_list), groups
-
-
-def _test_split(X, y, groups):
-    """60/20/20 grouped split, return test indices."""
-    from sklearn.model_selection import GroupShuffleSplit
-
-    gss1 = GroupShuffleSplit(
-        n_splits=1, test_size=0.4, random_state=SEED
-    )
-    _train_idx, rest_idx = next(gss1.split(X, y, groups=groups))
-    rest_groups = [groups[i] for i in rest_idx]
-    gss2 = GroupShuffleSplit(
-        n_splits=1, test_size=0.5, random_state=SEED
-    )
-    _, test_local = next(
-        gss2.split(X[rest_idx], y[rest_idx], groups=rest_groups)
-    )
-    return rest_idx[test_local]
-
-
-def _predict(X, test_idx, trust_data):
-    """Predict P(faithful) on test split using learned model."""
-    params = trust_data["trust_model"]
-    mean = np.array(params["mean"])
-    scale = np.array(params["scale"])
-    coef = np.array(params["coef"])
-    intercept = params["intercept"]
-    Z = (X[test_idx] - mean) / scale
-    return 1.0 / (1.0 + np.exp(-(Z @ coef + intercept)))
-
-
-# -------------------------------------------------------------------
-# 1. Hallucination detection (RAGTruth test split)
-# -------------------------------------------------------------------
+# ----------------------------------------------------------------- 1-2. RAGTruth (held-out test split)
 
 
 def run_hallucination() -> dict:
-    """Precision, recall, F1, AUROC on RAGTruth test split."""
-    from sklearn.metrics import (
-        classification_report,
-        confusion_matrix,
-        roc_auc_score,
-    )
+    """Answer-level hallucination detection with the trust score on unseen RAGTruth contexts."""
+    from sklearn.metrics import confusion_matrix, precision_recall_fscore_support, roc_auc_score
 
-    trust_data = json.loads(TRUST_JSON.read_text(encoding="utf-8"))
-    log.info("Hallucination eval on RAGTruth")
-
-    X, y, groups = _process_ragtruth(trust_data)
-    test_idx = _test_split(X, y, groups)
-    probs = _predict(X, test_idx, trust_data)
-    preds = (probs >= 0.5).astype(int)
-    y_test = y[test_idx]
-
-    auroc = float(roc_auc_score(y_test, probs))
-    cm = confusion_matrix(y_test, preds).tolist()
-    names = ["hallucinated", "faithful"]
-    report = classification_report(
-        y_test, preds, target_names=names, output_dict=True
-    )
-
-    result = {
-        "test": "hallucination_detection",
-        "n_test": len(test_idx),
-        "auroc": round(auroc, 4),
-        "precision_faithful": round(
-            report["faithful"]["precision"], 4
-        ),
-        "recall_faithful": round(report["faithful"]["recall"], 4),
-        "f1_faithful": round(report["faithful"]["f1-score"], 4),
-        "precision_hallucinated": round(
-            report["hallucinated"]["precision"], 4
-        ),
-        "recall_hallucinated": round(
-            report["hallucinated"]["recall"], 4
-        ),
-        "f1_hallucinated": round(
-            report["hallucinated"]["f1-score"], 4
-        ),
-        "confusion_matrix": cm,
-        "accuracy": round(report["accuracy"], 4),
-    }
-    _save("hallucination", result)
-    log.info(
-        "Hallucination: AUROC=%.4f F1(faith)=%.4f F1(hall)=%.4f",
-        auroc, result["f1_faithful"], result["f1_hallucinated"],
-    )
-    return result
-
-
-# -------------------------------------------------------------------
-# 2. Calibration: ECE, Brier, reliability diagram
-# -------------------------------------------------------------------
+    test, model = _ragtruth_test()
+    y = np.array([e["faithful"] for e in test], dtype=int)
+    p = _trust_probs(test, model)
+    pred = (p >= 0.5).astype(int)
+    prec, rec, f1, _ = precision_recall_fscore_support(y, pred, labels=[0, 1], zero_division=0)
+    return {"n_test": len(test), "auroc": round(float(roc_auc_score(y, p)), 4),
+            "hallucinated": {"precision": round(prec[0], 4), "recall": round(rec[0], 4), "f1": round(f1[0], 4)},
+            "faithful": {"precision": round(prec[1], 4), "recall": round(rec[1], 4), "f1": round(f1[1], 4)},
+            "confusion_matrix_rows_gold_hall_faith": confusion_matrix(y, pred, labels=[0, 1]).tolist()}
 
 
 def run_calibration() -> dict:
-    """ECE, Brier score, reliability diagram from RAGTruth test split."""
-    trust_data = json.loads(TRUST_JSON.read_text(encoding="utf-8"))
-    metrics = trust_data.get("metrics", {})
+    """Trust calibration (Brier, ECE, reliability) and the claim threshold's error on the test split."""
+    from sklearn.metrics import brier_score_loss
 
-    X, y, groups = _process_ragtruth(trust_data)
-    test_idx = _test_split(X, y, groups)
-    probs = _predict(X, test_idx, trust_data)
-    y_test = y[test_idx]
+    from backend.calibration.thresholds import clopper_pearson_upper
+    from backend.calibration.trust_model import get_nli_thresholds
+    from eval.metrics import ece, reliability
 
-    bins = np.linspace(0, 1, 11)
-    diagram = []
-    for lo, hi in zip(bins[:-1], bins[1:]):
-        mask = (probs >= lo) & (probs < hi)
-        n = int(mask.sum())
-        if n == 0:
-            continue
-        diagram.append({
-            "predicted": round(float(probs[mask].mean()), 4),
-            "observed": round(float(y_test[mask].mean()), 4),
-            "n": n,
-        })
-
-    result = {
-        "test": "calibration",
-        "brier": metrics.get("brier"),
-        "ece": metrics.get("ece"),
-        "auroc": metrics.get("auroc"),
-        "test_n": len(test_idx),
-        "reliability_diagram": diagram,
-    }
-    _save("calibration", result)
-    log.info(
-        "Calibration: Brier=%.4f ECE=%.4f",
-        result["brier"], result["ece"],
-    )
-    return result
+    test, model = _ragtruth_test()
+    y = np.array([e["faithful"] for e in test], dtype=int)
+    p = _trust_probs(test, model)
+    tau = get_nli_thresholds()["tau_accept"]
+    claims = [c for e in test for c in e["claims"]]
+    accepted = [c for c in claims if c["support"] >= tau]
+    errors = sum(not c["faithful"] for c in accepted)
+    return {"n_test": len(test), "brier": round(float(brier_score_loss(y, p)), 4), "ece": round(ece(p, y), 4),
+            "reliability": reliability(p, y), "tau_accept": tau, "claims": len(claims), "accepted": len(accepted),
+            "accepted_error": round(errors / len(accepted), 4) if accepted else None,
+            "accepted_error_upper95": round(clopper_pearson_upper(errors, len(accepted)), 4),
+            "risk_target": settings.RISK_VERIFIED}
 
 
-# -------------------------------------------------------------------
-# 3. Injected errors (NASA chunks)
-# -------------------------------------------------------------------
+# ----------------------------------------------------------------- 3. Injected errors
 
 
-def run_injected() -> dict:
-    """Inject number/entity/negation errors into NASA claims.
+def _number_swap(text: str) -> str:
+    m = re.search(r"\d+(?:\.\d+)?", text)
+    if not m:
+        return ""
+    value = float(m.group())
+    new = value * 2 + 7 if value else 42
+    return text[: m.start()] + (str(int(new)) if "." not in m.group() else f"{new:g}") + text[m.end():]
 
-    Report catch rate per type and false-alarm rate.
+
+def _entity_swap(text: str, pool: list[str], rng: random.Random) -> str:
+    words = text.split()
+    caps = [i for i, w in enumerate(words) if i > 0 and w[:1].isupper() and w.isalpha() and len(w) > 2]
+    if not caps:
+        return ""
+    i = caps[0]
+    choices = [w for w in pool if w != words[i]]
+    if not choices:
+        return ""
+    words[i] = rng.choice(choices)
+    return " ".join(words)
+
+
+def run_injected(dataset_id: str | None = None) -> dict:
+    """Correct chunk sentences vs number / entity / negation versions, through the live verifier.
+
+    Each mutated claim keeps the original sentence as its quote, as a model that copies the right
+    quote but states the fact wrongly would.
     """
-    import random
-    import re
-
-    import pysbd
-
-    from backend.calibration.trust_model import FALLBACK_NLI_THRESHOLDS
-    from backend.db.client import chunks as get_chunks
-    from backend.generation.llm import call_llm
+    from backend.calibration.trust_model import get_nli_thresholds, get_temperature
+    from backend.common.text import sentences
     from backend.generation.schemas import Claim
     from backend.verification.gate import verify_claims
 
-    temperature = json.loads(
-        TRUST_JSON.read_text(encoding="utf-8")
-    )["temperature"]
-    thresholds = FALLBACK_NLI_THRESHOLDS
     rng = random.Random(SEED)
-
-    nasa_chunks = list(get_chunks().find(
-        {
-            "file_name": {"$regex": "nasa", "$options": "i"},
-            "element_type": "text",
-        },
-        {"embedding": 0},
-    ).limit(300))
-    if len(nasa_chunks) < 20:
-        nasa_chunks = list(get_chunks().find(
-            {"element_type": "text"},
-            {"embedding": 0},
-        ).limit(300))
-    log.info("Found %d text chunks for evaluation", len(nasa_chunks))
-    if len(nasa_chunks) < 20:
-        return {
-            "test": "injected_errors",
-            "skipped": True,
-            "reason": "not enough text chunks in database",
-        }
-
-    good = [c for c in nasa_chunks if len(c.get("text", "")) >= 50]
-    sample = rng.sample(good, min(100, len(good)))
-    seg = pysbd.Segmenter(language="en", clean=False)
-
-    def first_sentence(chunk: dict) -> str:
-        sents = [
-            s.strip()
-            for s in seg.segment(chunk["text"])
-            if len(s.strip()) > 20
-        ]
-        return sents[0] if sents else chunk["text"][:200]
-
-    correct_claims = [
-        {"text": first_sentence(c), "chunk": c} for c in sample
-    ]
-
-    def number_swap(text: str) -> str:
-        match = re.search(r"\d+\.?\d*", text)
-        if not match:
-            return ""
-        num = float(match.group())
-        new = num * 2 + 7 if num != 0 else 42
-        if "." not in match.group():
-            new = int(new)
-        return text[: match.start()] + str(new) + text[match.end() :]
-
-    def entity_swap(text: str) -> str:
-        words = text.split()
-        caps = [
-            (i, w)
-            for i, w in enumerate(words)
-            if w[0].isupper() and len(w) > 2 and i > 0
-        ]
-        if not caps:
-            return ""
-        idx, word = caps[0]
-        pool = [
-            "Mercury", "Jupiter", "Congress",
-            "Boeing", "Russia", "Antarctica",
-        ]
-        pick = rng.choice(
-            [r for r in pool if r != word] or pool
-        )
-        words[idx] = pick
-        return " ".join(words)
-
-    def negate(text: str) -> str:
-        prompt = (
-            "Negate this claim so it says the opposite. "
-            "Return ONLY the negated claim.\n\n"
-            f"Claim: {text}"
-        )
-        try:
-            return call_llm(
-                [{"role": "user", "content": prompt}],
-                json_mode=False, reasoning_effort=None,
-            )
-        except (RuntimeError, ValueError) as e:
-            log.warning("Negation LLM failed: %s", e)
-            return ""
-
-    def _verify_one(claim_text, evidence):
-        claims_obj = [
-            Claim(text=claim_text, cites=["[1]"], quote=claim_text)
-        ]
-        v = verify_claims(
-            claims_obj, evidence, temperature, thresholds
-        )
-        return v[0]["label"]
-
-    out = {
-        "correct": [], "number_swap": [],
-        "entity_swap": [], "negation": [],
-    }
-
-    for i, item in enumerate(correct_claims):
-        chunk = item["chunk"]
-        evidence = _make_evidence(chunk["text"], chunk["_id"])
-
-        try:
-            out["correct"].append(_verify_one(item["text"], evidence))
-        except (ValueError, RuntimeError, KeyError):
-            out["correct"].append("ERROR")
-
-        ns = number_swap(item["text"])
-        if ns:
-            try:
-                out["number_swap"].append(_verify_one(ns, evidence))
-            except (ValueError, RuntimeError, KeyError):
-                out["number_swap"].append("ERROR")
-
-        es = entity_swap(item["text"])
-        if es:
-            try:
-                out["entity_swap"].append(_verify_one(es, evidence))
-            except (ValueError, RuntimeError, KeyError):
-                out["entity_swap"].append("ERROR")
-
+    sample = _sample_chunks(N_CHUNKS, 80, dataset_id)
+    pool = sorted({w for c in sample for w in c["text"].split() if w[:1].isupper() and w.isalpha() and len(w) > 3})
+    temperature, thresholds = get_temperature(), get_nli_thresholds()
+    out: dict[str, list[str]] = {"correct": [], "number_swap": [], "entity_swap": [], "negation": []}
+    for i, chunk in enumerate(sample):
+        sent = next((s for s in sentences(chunk["text"]) if len(s) > 40), "")
+        if not sent:
+            continue
+        evidence = [{**chunk, "_ref": "C1", "_rerank_score": 1.0}]
+        variants = {"correct": sent, "number_swap": _number_swap(sent), "entity_swap": _entity_swap(sent, pool, rng)}
         if i < 30:
-            neg = negate(item["text"])
-            if neg:
-                try:
-                    out["negation"].append(
-                        _verify_one(neg, evidence)
-                    )
-                except (ValueError, RuntimeError, KeyError):
-                    out["negation"].append("ERROR")
+            variants["negation"] = _ask_llm(
+                f"Rewrite this sentence so it states the opposite. Return ONLY the sentence.\n\n{sent}"
+            )
+        for kind, text in variants.items():
+            if text and text != sent or kind == "correct":
+                claim = Claim(text=text, cites=["C1"], quote=sent)
+                out[kind].append(verify_claims([claim], evidence, temperature, thresholds)[0]["label"])
 
-        if (i + 1) % 25 == 0:
-            log.info("  injected: %d / %d", i + 1, len(correct_claims))
+    def summary(labels):
+        return {"n": len(labels), "counts": dict(Counter(labels)),
+                "not_supported": round(sum(lb != "SUPPORTED" for lb in labels) / len(labels), 4) if labels else None,
+                "contradicted": round(labels.count("CONTRADICTED") / len(labels), 4) if labels else None}
 
-    def rate(labels, target_not="SUPPORTED"):
-        valid = [lb for lb in labels if lb != "ERROR"]
-        if not valid:
-            return 0.0
-        return sum(lb != target_not for lb in valid) / len(valid)
-
-    def label_counts(labels):
-        valid = [lb for lb in labels if lb != "ERROR"]
-        if not valid:
-            return {}
-        vals, counts = np.unique(valid, return_counts=True)
-        return {str(v): int(c) for v, c in zip(vals, counts)}
-
-    result = {
-        "test": "injected_errors",
-        "n_correct": len(out["correct"]),
-        "n_number_swap": len(out["number_swap"]),
-        "n_entity_swap": len(out["entity_swap"]),
-        "n_negation": len(out["negation"]),
-        "false_alarm_rate": round(rate(out["correct"]), 4),
-        "catch_rate_number_swap": round(rate(out["number_swap"]), 4),
-        "catch_rate_entity_swap": round(rate(out["entity_swap"]), 4),
-        "catch_rate_negation": round(rate(out["negation"]), 4),
-        "label_counts": {
-            k: label_counts(v) for k, v in out.items()
-        },
-    }
-    _save("injected_errors", result)
-    log.info(
-        "Injected: false_alarm=%.2f catch num=%.2f ent=%.2f neg=%.2f",
-        result["false_alarm_rate"],
-        result["catch_rate_number_swap"],
-        result["catch_rate_entity_swap"],
-        result["catch_rate_negation"],
-    )
+    result = {k: summary(v) for k, v in out.items()}
+    result["false_alarm_rate"] = result["correct"]["not_supported"]
     return result
 
 
-# -------------------------------------------------------------------
-# 4. Retrieval: recall@5 and MRR
-# -------------------------------------------------------------------
+# ----------------------------------------------------------------- 4. Retrieval
 
 
-def run_retrieval() -> dict:
-    """LLM-written questions with known gold chunk.
-
-    Report recall@5 and MRR for vector, keyword, hybrid+rerank.
-    """
-    import random
-
-    from backend.db.client import chunks as get_chunks
-    from backend.generation.llm import call_llm
-    from backend.models import rerank_scores
+def run_retrieval(dataset_id: str | None = None) -> dict:
+    """Recall@5 and MRR for vector, keyword, and RRF + rerank, on LLM-written questions with a gold chunk."""
     from backend.retrieval.atlas_search import text_search, vector_search
     from backend.retrieval.fusion import rrf_fuse
-
-    nasa_chunks = list(get_chunks().find(
-        {
-            "file_name": {"$regex": "nasa", "$options": "i"},
-            "element_type": "text",
-        },
-        {"embedding": 0},
-    ).limit(300))
-    if len(nasa_chunks) < 20:
-        nasa_chunks = list(get_chunks().find(
-            {"element_type": "text"},
-            {"embedding": 0},
-        ).limit(300))
-    good = [c for c in nasa_chunks if len(c.get("text", "")) >= 100]
-    if len(good) < 20:
-        return {
-            "test": "retrieval", "skipped": True,
-            "reason": "not enough text chunks in database",
-        }
-
-    rng = random.Random(SEED)
-    sample = rng.sample(good, min(100, len(good)))
-
-    log.info("Generating %d questions from NASA chunks", len(sample))
-    qa_pairs = []
-    for i, chunk in enumerate(sample):
-        prompt = (
-            "Write ONE short factual question this passage answers. "
-            "Return ONLY the question.\n\n"
-            f"Passage: {chunk['text'][:500]}"
-        )
-        try:
-            q = call_llm(
-                [{"role": "user", "content": prompt}],
-                json_mode=False, reasoning_effort=None,
-            )
-            qa_pairs.append({
-                "question": q.strip(),
-                "gold_id": chunk["_id"],
-                "dataset_id": chunk["dataset_id"],
-            })
-        except (RuntimeError, ValueError) as e:
-            log.warning("Question gen failed chunk %d: %s", i, e)
-        if (i + 1) % 25 == 0:
-            log.info("  questions: %d / %d", i + 1, len(sample))
-
-    log.info("Generated %d QA pairs", len(qa_pairs))
-    if not qa_pairs:
-        return {
-            "test": "retrieval", "skipped": True,
-            "reason": "question generation failed",
-        }
-
-    def recall_mrr(hits, gold_id, k=5):
-        ids = [r["_id"] for r in hits[:k]]
-        if gold_id in ids:
-            return 1, 1.0 / (ids.index(gold_id) + 1)
-        return 0, 0.0
-
-    vec_r, vec_m = [], []
-    txt_r, txt_m = [], []
-    hyb_r, hyb_m = [], []
-
-    for i, qa in enumerate(qa_pairs):
-        ds = qa["dataset_id"]
-        try:
-            hits = vector_search(qa["question"], ds, limit=10)
-            r, m = recall_mrr(hits, qa["gold_id"])
-            vec_r.append(r)
-            vec_m.append(m)
-        except (RuntimeError, ValueError, KeyError):
-            pass
-
-        try:
-            hits = text_search(qa["question"], ds, limit=10)
-            r, m = recall_mrr(hits, qa["gold_id"])
-            txt_r.append(r)
-            txt_m.append(m)
-        except (RuntimeError, ValueError, KeyError):
-            pass
-
-        try:
-            v = vector_search(qa["question"], ds, limit=30)
-            t = text_search(qa["question"], ds, limit=30)
-            fused = rrf_fuse(v, t)
-            passages = [x.get("text", "") for x in fused[:10]]
-            scores = rerank_scores(qa["question"], passages)
-            for j, s in enumerate(scores):
-                fused[j]["_rerank_score"] = s
-            reranked = sorted(
-                fused[:10],
-                key=lambda x: x.get("_rerank_score", 0),
-                reverse=True,
-            )
-            r, m = recall_mrr(reranked, qa["gold_id"])
-            hyb_r.append(r)
-            hyb_m.append(m)
-        except (RuntimeError, ValueError, KeyError):
-            pass
-
-        if (i + 1) % 25 == 0:
-            log.info("  retrieval: %d / %d", i + 1, len(qa_pairs))
-
-    def _avg(arr):
-        return round(float(np.mean(arr)), 4) if arr else None
-
-    result = {
-        "test": "retrieval",
-        "n_queries": len(qa_pairs),
-        "vector": {
-            "recall_at_5": _avg(vec_r),
-            "mrr": _avg(vec_m), "n": len(vec_r),
-        },
-        "keyword": {
-            "recall_at_5": _avg(txt_r),
-            "mrr": _avg(txt_m), "n": len(txt_r),
-        },
-        "hybrid_rerank": {
-            "recall_at_5": _avg(hyb_r),
-            "mrr": _avg(hyb_m), "n": len(hyb_r),
-        },
-    }
-    _save("retrieval", result)
-    log.info(
-        "Retrieval: vec R@5=%s MRR=%s, kw R@5=%s MRR=%s, hyb R@5=%s MRR=%s",
-        result["vector"]["recall_at_5"], result["vector"]["mrr"],
-        result["keyword"]["recall_at_5"], result["keyword"]["mrr"],
-        result["hybrid_rerank"]["recall_at_5"],
-        result["hybrid_rerank"]["mrr"],
-    )
-    return result
-
-
-# -------------------------------------------------------------------
-# 5. End-to-end: gate vs no gate
-# -------------------------------------------------------------------
-
-
-def run_e2e() -> dict:
-    """Coverage with gate, decisions, bootstrap 95% CIs."""
-    import random
-    from collections import Counter
-
-    from scipy.stats import bootstrap as sp_bootstrap
-
-    from backend.calibration.trust_model import (
-        decide_trust,
-        get_nli_thresholds,
-        get_temperature,
-        predict_trust,
-    )
-    from backend.db.client import chunks as get_chunks
-    from backend.generation.answer import generate_answer
-    from backend.generation.llm import call_llm
-    from backend.generation.prompts import format_context
-    from backend.retrieval.atlas_search import (
-        text_search,
-        vector_search,
-    )
-    from backend.retrieval.context import build_context
-    from backend.retrieval.fusion import rrf_fuse
     from backend.retrieval.reranker import rerank
-    from backend.verification.features import extract_features
-    from backend.verification.gate import run_gate
 
-    rng = random.Random(SEED)
+    def score(hits, gold):
+        ids = [h["_id"] for h in hits[:5]]
+        return (1, 1 / (ids.index(gold) + 1)) if gold in ids else (0, 0.0)
 
-    nasa_chunks = list(get_chunks().find(
-        {
-            "file_name": {"$regex": "nasa", "$options": "i"},
-            "element_type": "text",
-        },
-        {"embedding": 0},
-    ).limit(200))
-    if len(nasa_chunks) < 20:
-        nasa_chunks = list(get_chunks().find(
-            {"element_type": "text"},
-            {"embedding": 0},
-        ).limit(200))
-    good = [c for c in nasa_chunks if len(c.get("text", "")) >= 100]
-    if len(good) < 20:
-        return {
-            "test": "e2e", "skipped": True,
-            "reason": "not enough text chunks in database",
-        }
+    res = {"vector": [], "keyword": [], "hybrid_rerank": []}
+    for chunk in _sample_chunks(N_CHUNKS, 100, dataset_id):
+        q, ds, gold = _question_for(chunk), chunk["dataset_id"], chunk["_id"]
+        vec, txt = vector_search(q, ds), text_search(q, ds)
+        res["vector"].append(score(vec, gold))
+        res["keyword"].append(score(txt, gold))
+        res["hybrid_rerank"].append(score(rerank(q, rrf_fuse(vec, txt)), gold))
+    return {k: {"n": len(v), "recall_at_5": round(float(np.mean([r for r, _ in v])), 4),
+                "mrr": round(float(np.mean([m for _, m in v])), 4)} for k, v in res.items()}
 
-    sample = rng.sample(good, min(50, len(good)))
-    dataset_id = sample[0]["dataset_id"]
+
+# ----------------------------------------------------------------- 5. End to end
+
+
+def run_e2e(dataset_id: str | None = None) -> dict:
+    """Full pipeline on answerable questions (from chunks) and unanswerable ones (off-topic)."""
+    from backend.pipeline import answer_and_verify, retrieve
+    from eval.metrics import mean_ci
+
+    sample = _sample_chunks(N_E2E, 100, dataset_id)
+    ds = sample[0]["dataset_id"]
+
+    failed = []
+
+    def run(questions):
+        rows = []
+        for q in questions:
+            try:
+                checked = answer_and_verify(q, retrieve(q, ds))
+            except RuntimeError as e:  # e.g. Groq still rate-limited after its retries: skip this one
+                failed.append({"question": q, "error": str(e)})
+                continue
+            rows.append({"question": q, "decision": checked["decision"], "trust": checked["trust"]})
+        return rows
 
     questions = []
     for chunk in sample:
-        prompt = (
-            "Write ONE short factual question about this passage. "
-            "Return ONLY the question.\n\n"
-            f"{chunk['text'][:400]}"
-        )
         try:
-            q = call_llm(
-                [{"role": "user", "content": prompt}],
-                json_mode=False, reasoning_effort=None,
-            )
-            questions.append(q.strip())
-        except (RuntimeError, ValueError):
-            continue
-
-    log.info("E2E: %d questions through full pipeline", len(questions))
-    temperature = get_temperature()
-    thresholds = get_nli_thresholds()
-
-    gate_shown = []
-    decisions = []
-
-    for i, q in enumerate(questions):
-        try:
-            fused = rrf_fuse(
-                vector_search(q, dataset_id),
-                text_search(q, dataset_id),
-            )
-            evidence = build_context(rerank(q, fused))
-            context = format_context(evidence)
-            first = generate_answer(q, context)
-            gate = run_gate(
-                q, context, evidence, first,
-                temperature, thresholds,
-            )
-            features = extract_features(
-                gate["claims"], evidence, gate["repaired"]
-            )
-            trust = predict_trust(features)
-            decision = decide_trust(trust)
-            decisions.append(decision)
-            blocked = (
-                decision == "Withheld"
-                or gate["decision"] == "BLOCK"
-            )
-            gate_shown.append(0 if blocked else 1)
-        except (RuntimeError, ValueError, KeyError) as e:
-            log.warning("E2E question %d failed: %s", i, e)
-        if (i + 1) % 10 == 0:
-            log.info("  e2e: %d / %d", i + 1, len(questions))
-
-    if not gate_shown:
-        return {
-            "test": "e2e", "skipped": True,
-            "reason": "all questions failed",
-        }
-
-    gate_arr = np.array(gate_shown)
-    coverage = float(gate_arr.mean())
-    ci = sp_bootstrap(
-        (gate_arr,), np.mean,
-        confidence_level=0.95, random_state=SEED,
-        method="percentile",
-    )
-    decision_counts = dict(Counter(decisions))
-
-    result = {
-        "test": "e2e",
-        "n_questions": len(questions),
-        "n_answered": len(gate_shown),
-        "coverage": round(coverage, 4),
-        "coverage_ci_95": [
-            round(ci.confidence_interval.low, 4),
-            round(ci.confidence_interval.high, 4),
-        ],
-        "decisions": decision_counts,
-        "without_gate_shown": len(gate_shown),
+            questions.append(_question_for(chunk))
+        except RuntimeError as e:
+            failed.append({"chunk": chunk["_id"], "error": str(e)})
+    answerable = run(questions)
+    unanswerable = run(UNANSWERABLE)
+    if not answerable:
+        raise RuntimeError(f"every question failed, e.g. {failed[:1]}")
+    shown = lambda r: r["decision"] in ("ACCEPT", "ACCEPT_LOW_CONFIDENCE")  # noqa: E731
+    trusts = [r["trust"] for r in answerable if r["trust"] is not None]
+    return {
+        "dataset_id": ds,
+        "answerable": {"n": len(answerable), "decisions": dict(Counter(r["decision"] for r in answerable)),
+                       "verified_or_partly": mean_ci([shown(r) for r in answerable]),
+                       "missed_as_not_found": mean_ci([r["decision"] == "NO_SUPPORT" for r in answerable]),
+                       "avg_trust": round(float(np.mean(trusts)), 1) if trusts else None},
+        "unanswerable": {"n": len(unanswerable), "decisions": dict(Counter(r["decision"] for r in unanswerable)),
+                         "correctly_not_answered": mean_ci([not shown(r) for r in unanswerable])},
+        "failed_calls": len(failed),
     }
-    _save("e2e", result)
-    log.info(
-        "E2E: coverage=%.2f [%.2f, %.2f] decisions=%s",
-        coverage, result["coverage_ci_95"][0],
-        result["coverage_ci_95"][1], decision_counts,
-    )
-    return result
 
 
-# -------------------------------------------------------------------
-# CLI
-# -------------------------------------------------------------------
+# ----------------------------------------------------------------- CLI
+
+TESTS = {"hallucination": run_hallucination, "calibration": run_calibration, "injected": run_injected,
+         "retrieval": run_retrieval, "e2e": run_e2e}
+NEEDS_DATASET = {"injected", "retrieval", "e2e"}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Argus evaluation runner"
-    )
-    parser.add_argument(
-        "--all", action="store_true", help="Run all tests"
-    )
-    parser.add_argument("--hallucination", action="store_true")
-    parser.add_argument("--calibration", action="store_true")
-    parser.add_argument("--injected", action="store_true")
-    parser.add_argument("--retrieval", action="store_true")
-    parser.add_argument("--e2e", action="store_true")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--dataset", default="ds_nasa", help="dataset for the injected, retrieval and e2e tests")
+    for name in TESTS:
+        parser.add_argument(f"--{name}", action="store_true")
     args = parser.parse_args()
+    chosen = [n for n in TESTS if args.all or getattr(args, n)]
+    if not chosen:
+        parser.error("choose --all or at least one test")
 
-    flags = [
-        args.all, args.hallucination, args.calibration,
-        args.injected, args.retrieval, args.e2e,
-    ]
-    if not any(flags):
-        parser.print_help()
-        sys.exit(1)
-
+    settings.LLM_CACHE = True  # repeatable runs
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M")
+    RESULTS_DIR.mkdir(exist_ok=True)
     results = {}
-    tests = [
-        (args.all or args.hallucination, "hallucination",
-         run_hallucination),
-        (args.all or args.calibration, "calibration",
-         run_calibration),
-        (args.all or args.injected, "injected",
-         run_injected),
-        (args.all or args.retrieval, "retrieval",
-         run_retrieval),
-        (args.all or args.e2e, "e2e", run_e2e),
-    ]
-    for enabled, name, fn in tests:
-        if enabled:
-            try:
-                results[name] = fn()
-            except (RuntimeError, ValueError, OSError) as e:
-                log.error("%s test failed: %s", name, e)
-
-    if results:
-        _save_summary_csv(results)
-
-    print("\n=== Evaluation complete ===")
+    for name in chosen:
+        log.info("Running %s", name)
+        try:
+            results[name] = TESTS[name](args.dataset) if name in NEEDS_DATASET else TESTS[name]()
+        except (RuntimeError, FileNotFoundError) as e:
+            log.error("%s skipped: %s", name, e)
+            results[name] = {"skipped": str(e)}
+        (RESULTS_DIR / f"{name}_{stamp}.json").write_text(json.dumps(results[name], indent=2, default=str))
+    report = [f"# Argus evaluation, {stamp} UTC\n", f"NLI model: `{settings.NLI_MODEL_NAME}`\n"]
+    for name, res in results.items():
+        report.append(f"## {name}\n\n```json\n{json.dumps(res, indent=2, default=str)}\n```\n")
+    (RESULTS_DIR / "REPORT.md").write_text("\n".join(report), encoding="utf-8")
+    print(f"Wrote {len(results)} result files and results/REPORT.md")
 
 
 if __name__ == "__main__":

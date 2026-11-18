@@ -9,6 +9,7 @@ import { startChat } from '../lib/chat'
 import { timeAgo } from '../lib/format'
 import { Link, navigate } from '../lib/router'
 import { cn } from '../lib/utils'
+import { trustBand } from '../lib/verdicts'
 
 export default function History() {
   const [datasetFilter, setDatasetFilter] = useState('all')
@@ -174,19 +175,16 @@ export default function History() {
         <div className="grid gap-3.5">
           {filtered.map((s) => {
             const dsName = datasetMap.get(s.dataset_id) || 'Documents'
-            const avgTrust = s.summary?.avg_trust ?? (s.trust_sum && s.turns ? Math.round(s.trust_sum / s.turns) : 0)
+            const avgTrust = s.summary?.avg_trust ?? null
             const turnsCount = s.turns ?? 0
             const updatedDate = s.updated_at ? timeAgo(s.updated_at) : 'recently'
             const isDeleting = deletingId === s._id
 
-            const trustColor =
-              avgTrust >= 75
-                ? 'text-ok bg-ok-line/15 border-ok-line/30'
-                : avgTrust >= 50
-                ? 'text-warn bg-warn/15 border-warn/30'
-                : avgTrust > 0
-                ? 'text-[#e0857c] bg-cherry/15 border-cherry/30'
-                : 'text-muted bg-hover border-border'
+            const trustColor = {
+              ok: 'text-ok bg-ok-line/15 border-ok-line/30',
+              warn: 'text-warn bg-warn/15 border-warn/30',
+              bad: 'text-[#e0857c] bg-cherry/15 border-cherry/30',
+            }[trustBand(avgTrust)?.tone] ?? 'text-muted bg-hover border-border'
 
             return (
               <div
@@ -241,7 +239,7 @@ export default function History() {
 
                 {/* Right side: Trust badge & Actions */}
                 <div className="flex items-center gap-3 self-end sm:self-center flex-none">
-                  {avgTrust > 0 && (
+                  {avgTrust != null && (
                     <div className={cn('flex flex-col items-end rounded-xl border px-3 py-1.5', trustColor)}>
                       <span className="text-[10px] uppercase font-semibold tracking-wider">Avg Trust</span>
                       <span className="text-lg font-bold tabular leading-tight">{avgTrust}</span>

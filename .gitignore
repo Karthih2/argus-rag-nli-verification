@@ -41,9 +41,10 @@ logs/
 
 # ---- Local tooling, editors and OS files ----
 .claude/
-_xfer/
-_archive/
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ---- Local-only project notes (never pushed) ----
+Project Documentation.md

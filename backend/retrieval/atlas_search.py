@@ -10,6 +10,7 @@ from backend.retrieval.embedder import embed_query
 log = logging.getLogger(__name__)
 
 HIDE_VECTOR = {"$project": {"embedding": 0}}
+POLL_S = 2
 
 
 def vector_search(
@@ -43,17 +44,21 @@ def text_search(
     return list(chunks().aggregate(pipeline))
 
 
-def wait_until_searchable(dataset_id: str, document_id: str) -> bool:
-    """Poll until $vectorSearch filtered to this document returns a hit (indexes are async)."""
+def is_searchable(dataset_id: str, document_id: str) -> bool:
+    """True once $vectorSearch filtered to this document returns a hit (indexes update async)."""
     probe = chunks().find_one({"document_id": document_id}, {"embedding": 1})
     if not probe:
         return False
-    vector = list(probe["embedding"].as_vector().data)
+    return bool(_vector_search(list(probe["embedding"].as_vector().data), dataset_id, [document_id], 1))
+
+
+def wait_until_searchable(dataset_id: str, document_id: str) -> bool:
+    """Poll is_searchable until it succeeds or INDEX_READY_TIMEOUT_S passes."""
     deadline = time.monotonic() + settings.INDEX_READY_TIMEOUT_S
     while time.monotonic() < deadline:
-        if _vector_search(vector, dataset_id, [document_id], 1):
+        if is_searchable(dataset_id, document_id):
             return True
-        time.sleep(2)
+        time.sleep(POLL_S)
     return False
 
 

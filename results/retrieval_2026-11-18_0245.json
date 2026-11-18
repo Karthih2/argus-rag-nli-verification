@@ -1,0 +1,17 @@
+{
+  "vector": {
+    "n": 100,
+    "recall_at_5": 0.95,
+    "mrr": 0.8253
+  },
+  "keyword": {
+    "n": 100,
+    "recall_at_5": 0.97,
+    "mrr": 0.9032
+  },
+  "hybrid_rerank": {
+    "n": 100,
+    "recall_at_5": 0.99,
+    "mrr": 0.9362
+  }
+}

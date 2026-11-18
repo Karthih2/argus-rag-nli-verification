@@ -1,11 +1,7 @@
-"""Trust model: read learned params from trust.json, predict P(faithful) for one answer.
+"""Read the fitted calibration (trust.json): NLI temperature, claim thresholds, answer trust model.
 
-The JSON is fitted offline by scripts/fit_trust.py and contains:
-  - temperature: NLI temperature scalar
-  - trust_model: {mean, scale, coef, intercept} for logistic regression
-  - thresholds: {verified, withheld} trust score cut-offs
-  - metrics: test-split quality numbers
-  - version, fit_date, data_sources
+trust.json is written offline by `python -m scripts.fit_trust`. Until a value is fitted (or when
+its risk target could not be met) the fallback below is used and the UI labels it "fallback".
 """
 
 import json
@@ -19,34 +15,14 @@ from backend.config import ROOT_DIR
 log = logging.getLogger(__name__)
 
 TRUST_JSON = ROOT_DIR / "backend" / "calibration" / "trust.json"
-
-FEATURE_KEYS = [
-    "min_support",
-    "mean_support",
-    "max_rel_contra",
-    "share_supported",
-    "n_claims",
-    "quote_match_rate",
-    "number_mismatches",
-    "top1_rerank",
-    "rerank_gap",
-    "repaired",
-]
-
-# Fallback thresholds before trust.json exists
-FALLBACK_NLI_THRESHOLDS = {
-    "tau_accept": 0.75,
-    "tau_low": 0.60,
-    "tau_block": 0.75,
-    "tau_rel": 0.0,
-}
+FALLBACK_THRESHOLDS = {"tau_accept": 0.70, "tau_low": 0.50, "tau_block": 0.70}  # hand-set, used until fitted
 
 
 @lru_cache(maxsize=1)
 def load_trust_json() -> dict | None:
-    """Load trust.json once; None if not yet fitted."""
+    """trust.json, read once; None if it hasn't been fitted yet."""
     if not TRUST_JSON.exists():
-        log.warning("trust.json not found at %s — using fallback values", TRUST_JSON)
+        log.warning("trust.json not found at %s; using fallback values", TRUST_JSON)
         return None
     data = json.loads(TRUST_JSON.read_text(encoding="utf-8"))
     log.info("Loaded trust.json v%s (fitted %s)", data.get("version"), data.get("fit_date"))
@@ -54,50 +30,53 @@ def load_trust_json() -> dict | None:
 
 
 def get_temperature() -> float:
-    """NLI temperature scalar (1.0 = uncalibrated)."""
+    """NLI temperature (1.0 = unscaled)."""
     data = load_trust_json()
-    return data["temperature"] if data else 1.0
+    return float(data.get("temperature", 1.0)) if data else 1.0
 
 
 def get_nli_thresholds() -> dict:
-    """Thresholds for claim-level NLI decisions."""
-    data = load_trust_json()
-    if data and "nli_thresholds" in data:
-        return {**FALLBACK_NLI_THRESHOLDS, **data["nli_thresholds"]}
-    return dict(FALLBACK_NLI_THRESHOLDS)
+    """tau_accept, tau_low, tau_block: fitted where the risk target was met, else fallback."""
+    fitted = (load_trust_json() or {}).get("nli_thresholds", {})
+    out = dict(FALLBACK_THRESHOLDS)
+    for key, entry in fitted.items():
+        if isinstance(entry, dict) and entry.get("met") and entry.get("value") is not None:
+            out[key] = float(entry["value"])
+    return out
 
 
-def get_trust_thresholds() -> dict:
-    """Answer-level trust score cut-offs: verified, withheld."""
-    data = load_trust_json()
-    if data and "thresholds" in data:
-        return data["thresholds"]
-    return {"verified": 75, "withheld": None}
-
-
-def predict_trust(features: dict) -> int:
-    """Trust score 0-100 for one answer. Fallback heuristic before trust.json exists."""
+def predict_trust(features: dict) -> int | None:
+    """Trust 0-100 = round(100 x P(answer correct)); None when there is nothing to score."""
     if not features:
-        return 0
+        return None
+    model = (load_trust_json() or {}).get("trust_model")
+    if not model:
+        # Not fitted yet: plain average support, clearly labelled "fallback" in the UI.
+        return round(100 * features.get("mean_support", 0.0))
+    row = np.array([float(features.get(k, 0.0)) for k in model["features"]])
+    z = (row - np.array(model["mean"])) / np.array(model["scale"])
+    logit = float(z @ np.array(model["coef"]) + model["intercept"])
+    return int(round(100 / (1 + np.exp(-logit))))
+
+
+def calibration_info() -> dict:
+    """What the UI shows about the calibration: version, which values are fitted, test metrics."""
     data = load_trust_json()
-    if data and "trust_model" in data:
-        params = data["trust_model"]
-        row = np.array([[float(features.get(k, 0.0)) for k in FEATURE_KEYS]])
-        z = (row - np.array(params["mean"])) / np.array(params["scale"])
-        prob = 1.0 / (1.0 + np.exp(-(z @ np.array(params["coef"]) + params["intercept"])))
-        return int(round(100 * float(prob[0])))
-    # Fallback: weighted average of support and share_supported
-    return round(100 * (0.6 * features.get("mean_support", 0) + 0.4 * features.get("share_supported", 0)))
-
-
-def decide_trust(trust: int) -> str:
-    """Map trust score to a decision label using learned thresholds.
-
-    Returns: 'Verified', 'Flagged', or 'Withheld'.
-    """
-    thresholds = get_trust_thresholds()
-    if trust >= thresholds.get("verified", 75):
-        return "Verified"
-    if thresholds.get("withheld") is not None and trust <= thresholds["withheld"]:
-        return "Withheld"
-    return "Flagged"
+    if not data:
+        return {"fitted": False, "thresholds": FALLBACK_THRESHOLDS, "fallback": list(FALLBACK_THRESHOLDS)}
+    fitted = data.get("nli_thresholds", {})
+    fallback = [k for k in FALLBACK_THRESHOLDS if not (fitted.get(k) or {}).get("met")]
+    return {
+        "fitted": True,
+        "version": data.get("version"),
+        "fit_date": data.get("fit_date"),
+        "nli_model": data.get("nli_model"),
+        "data_sources": data.get("data_sources"),
+        "temperature": data.get("temperature"),
+        "thresholds": get_nli_thresholds(),
+        "threshold_report": fitted,
+        "fallback": fallback,
+        "risk": data.get("risk"),
+        "metrics": data.get("metrics"),
+        "note": data.get("note"),
+    }

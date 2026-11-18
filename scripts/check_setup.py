@@ -184,7 +184,9 @@ def smoke_test() -> bool:
     import tempfile
     from pathlib import Path
 
-    from backend.db.client import chunks, documents
+    from bson import ObjectId
+
+    from backend.db.client import chunks, documents, get_fs
     from backend.ingestion.pipeline import ingest_document
     from backend.library import create_dataset, delete_dataset
     from backend.pipeline import run_question
@@ -195,6 +197,7 @@ def smoke_test() -> bool:
 
     dataset_id = "ds_smoke_test"
     ok = True
+    gridfs_id = None
     try:
         # Create temp dataset
         create_dataset("Smoke Test", dataset_id=dataset_id)
@@ -204,12 +207,13 @@ def smoke_test() -> bool:
         tmp = Path(tempfile.mkdtemp())
         pdf_copy = tmp / SMOKE_PDF.name
         pdf_copy.write_bytes(SMOKE_PDF.read_bytes())
-        doc = ingest_document(pdf_copy, dataset_id, file_name=SMOKE_PDF.name, image_reading=False)
+        doc = ingest_document(pdf_copy, dataset_id, file_name=SMOKE_PDF.name)
         shutil.rmtree(tmp, ignore_errors=True)
         if doc is None:
             print(f"{FAIL} Smoke: ingest returned None (duplicate?)")
             ok = False
         else:
+            gridfs_id = doc["file"]["gridfs_id"]
             print(f"{OK} Smoke: ingested {doc['file']['name']}, status={doc['processing']['status']}")
 
         # Ask questions
@@ -218,7 +222,9 @@ def smoke_test() -> bool:
                 result = run_question(q, dataset_id)
                 valid = ("ACCEPT", "ACCEPT_LOW_CONFIDENCE", "WARN", "BLOCK", "NO_SUPPORT")
                 has_decision = result.get("decision") in valid
-                has_trust = isinstance(result.get("trust"), int) and 0 <= result["trust"] <= 100
+                trust = result.get("trust")
+                no_support = result.get("decision") == "NO_SUPPORT"
+                has_trust = (trust is None) if no_support else (isinstance(trust, int) and 0 <= trust <= 100)
                 has_claims = isinstance(result.get("claims"), list)
                 has_evidence = isinstance(result.get("evidence"), list)
                 passed = has_decision and has_trust and has_claims and has_evidence
@@ -240,11 +246,12 @@ def smoke_test() -> bool:
             delete_dataset(dataset_id)
             remaining_chunks = chunks().count_documents({"dataset_id": dataset_id})
             remaining_docs = documents().count_documents({"dataset_id": dataset_id})
-            clean = remaining_chunks == 0 and remaining_docs == 0
+            file_left = bool(gridfs_id) and get_fs().exists(ObjectId(gridfs_id))
+            clean = remaining_chunks == 0 and remaining_docs == 0 and not file_left
             sym = OK if clean else FAIL
             status = "complete" if clean else (
                 f"incomplete: {remaining_chunks} chunks,"
-                f" {remaining_docs} docs left"
+                f" {remaining_docs} docs, GridFS file left: {file_left}"
             )
             print(f"{sym} Smoke: cleanup {status}")
             if not clean:

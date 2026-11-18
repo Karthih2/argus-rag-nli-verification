@@ -8,7 +8,7 @@ from backend.common.ids import make_id
 from backend.db.client import sessions
 from backend.verification.aggregate import DECISIONS
 
-ANSWER_PREVIEW_CHARS = 200
+TITLE_CHARS = 60
 
 
 def create_session(dataset_id: str, document_ids: list[str], title: str = "") -> dict:
@@ -20,8 +20,9 @@ def create_session(dataset_id: str, document_ids: list[str], title: str = "") ->
         "document_ids": document_ids,
         "mode": "cross" if len(document_ids) > 1 else "single",
         "turns": 0,
+        "scored_turns": 0,
         "trust_sum": 0,
-        "summary": {**dict.fromkeys(DECISIONS, 0), "avg_trust": 0},
+        "summary": {**dict.fromkeys(DECISIONS, 0), "avg_trust": None},
         "updated_at": _now(),
     }
     sessions().insert_one(session)
@@ -32,20 +33,22 @@ def get_session(session_id: str) -> dict | None:
     return sessions().find_one({"_id": session_id})
 
 
-def record_turn(session_id: str, question: str, answer: str, decision: str, trust: int) -> dict:
-    """Increment turn count and update totals. Returns the new summary."""
+def record_turn(session_id: str, question: str, decision: str, trust: int | None) -> dict:
+    """Count the turn and its decision; average trust over the answers that have one."""
+    inc = {"turns": 1, f"summary.{decision}": 1}
+    if trust is not None:
+        inc.update({"scored_turns": 1, "trust_sum": trust})
     session = sessions().find_one_and_update(
         {"_id": session_id},
-        {
-            "$inc": {"turns": 1, "trust_sum": trust, f"summary.{decision}": 1},
-            "$set": {"updated_at": _now()},
-        },
+        {"$inc": inc, "$set": {"updated_at": _now()}},
         return_document=ReturnDocument.AFTER,
     )
-    avg = round(session["trust_sum"] / session["turns"])
-    sessions().update_one({"_id": session_id}, {"$set": {"summary.avg_trust": avg}})
+    scored = session.get("scored_turns", 0)
+    avg = round(session["trust_sum"] / scored) if scored else None
+    update = {"summary.avg_trust": avg}
     if not session.get("title"):
-        sessions().update_one({"_id": session_id}, {"$set": {"title": question[:60]}})
+        update["title"] = question[:TITLE_CHARS]
+    sessions().update_one({"_id": session_id}, {"$set": update})
     return {"turns": session["turns"], **session["summary"], "avg_trust": avg}
 
 

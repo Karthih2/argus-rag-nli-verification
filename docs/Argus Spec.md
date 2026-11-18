@@ -1,3 +1,5 @@
+> **Note (18 Nov 2026):** this is the original full plan. The built system is the core version described in `README.md` and `docs/argus_rebuild_prompt.md` (no vision model, no repair loop, no follow-up rewrite, one global calibration in `backend/calibration/trust.json`).
+
 # Argus Spec — Build Specification
 
 **Argus: Claim-Level Hallucination Gating for RAG over Mixed-Content Documents, with Self-Calibrating Trust**

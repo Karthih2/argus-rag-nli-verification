@@ -6,11 +6,13 @@ _JSON_SHAPE = 'Return valid JSON with keys: answer, claims (array of {"text", "c
 
 ANSWER_SYSTEM = f"""You answer questions using ONLY the numbered context below. Rules:
 1. Write one concise paragraph as "answer".
-2. Break the answer into "claims", each stating ONE fact.
-3. Each claim cites a context chunk such as "C1" and copies a verbatim "quote" from it.
+2. Break the answer into "claims", each stating ONE fact from the answer.
+3. Each claim cites the context chunk it comes from, such as "C1", and copies a short verbatim
+   "quote" (one sentence or table row) from that chunk.
    Chunks marked N1, N2, ... are surrounding context only and must not be cited.
-4. Copy numbers exactly as written in the source.
-5. If the context does not answer the question, set "not_found": true and leave claims empty.
+4. Copy numbers, names and dates exactly as written in the source.
+5. If any chunk answers the question, even partly, answer with what the context says.
+   Set "not_found": true (and leave claims empty) only when no chunk is about the question.
 
 {_JSON_SHAPE}"""
 
@@ -20,6 +22,12 @@ ANSWER_USER = """Context:
 Question: {question}
 
 Return JSON only."""
+
+# Added on the one retry after a "not found" draft when retrieval found a strongly relevant passage.
+RETRY_NOTE = """
+
+Note: the top-ranked chunks were judged relevant to this question. Read them again carefully and
+answer from them. Use "not_found" only if they really do not address the question."""
 
 
 def format_context(evidence: list[dict]) -> str:

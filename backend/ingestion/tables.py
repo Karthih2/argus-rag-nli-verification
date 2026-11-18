@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 
+from backend.common.text import nli_token_count
 from backend.config import settings
 from backend.ingestion.elements import Element, TableData
 
@@ -36,6 +37,11 @@ def table_to_chunks(element: Element) -> list[Element]:
         )
         for start in range(0, len(table.rows), size)
     ]
-    if len(table.rows) <= settings.TABLE_MAX_ROWS_WHOLE and len(parts) > 1:
+    # A whole-table chunk only when it is small and still fits the verifier without being cut.
+    if (
+        len(parts) > 1
+        and len(table.rows) <= settings.TABLE_MAX_ROWS_WHOLE
+        and nli_token_count(element.text) <= settings.CHUNK_MAX_TOKENS
+    ):
         parts.append(replace(element, element_type="table_full", element_path=f"{element.element_path}_full"))
     return parts

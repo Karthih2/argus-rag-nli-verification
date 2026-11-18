@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Navbar } from './components/Navbar'
 import { ActivityProvider } from './lib/activity'
@@ -17,19 +16,6 @@ export default function App() {
   const location = useLocation()
   const route = matchRoute(location.pathname)
   const Page = PAGES[route.name]
-
-  // On page reload/refresh, persist to MongoDB has already occurred, and throw the user out to History
-  useEffect(() => {
-    try {
-      const navEntries = performance.getEntriesByType('navigation')
-      const isReload = (navEntries.length > 0 && navEntries[0].type === 'reload') || performance.navigation?.type === 1
-      if (isReload && (window.location.pathname.startsWith('/dashboard') || window.location.pathname.startsWith('/processing'))) {
-        navigate('/history', { replace: true })
-      }
-    } catch (e) {
-      console.warn('Navigation check failed', e)
-    }
-  }, [])
 
   return (
     <ActivityProvider>

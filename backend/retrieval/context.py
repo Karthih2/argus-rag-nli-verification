@@ -5,6 +5,7 @@ from backend.config import settings
 from backend.db.client import chunks
 
 DUPLICATE_OVERLAP = 0.5
+TABLE_TYPES = {"table", "table_full"}
 
 
 def build_context(reranked: list[dict], max_tokens: int | None = None) -> list[dict]:
@@ -45,7 +46,7 @@ def _dedupe(ranked: list[dict]) -> list[dict]:
     kept: list[dict] = []
     for chunk in ranked:
         if not any(
-            _same_place(chunk, k) and _overlap(chunk["text"], k["text"]) > DUPLICATE_OVERLAP for k in kept
+            _same_place(chunk, k) and _overlap(chunk, k) > DUPLICATE_OVERLAP for k in kept
         ):
             kept.append(chunk)
     return kept
@@ -79,7 +80,12 @@ def _same_place(a: dict, b: dict) -> bool:
     return a.get("document_id") == b.get("document_id") and a.get("page") == b.get("page")
 
 
-def _overlap(a: str, b: str) -> float:
-    """Jaccard overlap of word sets."""
-    sa, sb = set(a.lower().split()), set(b.lower().split())
+def _overlap(a: dict, b: dict) -> float:
+    """Text: Jaccard overlap of word sets. Tables: share of rows of the smaller chunk found in the
+    other, so row groups that only repeat the header are kept, while a row group inside the
+    whole-table chunk counts as a duplicate."""
+    if a.get("element_type") in TABLE_TYPES and b.get("element_type") in TABLE_TYPES:
+        la, lb = set(a["text"].splitlines()), set(b["text"].splitlines())
+        return len(la & lb) / min(len(la), len(lb)) if la and lb else 0.0
+    sa, sb = set(a["text"].lower().split()), set(b["text"].lower().split())
     return len(sa & sb) / len(sa | sb) if sa and sb else 0.0

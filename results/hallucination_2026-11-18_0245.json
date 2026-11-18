@@ -1,0 +1,24 @@
+{
+  "n_test": 303,
+  "auroc": 0.6779,
+  "hallucinated": {
+    "precision": 0.609,
+    "recall": 0.5745,
+    "f1": 0.5912
+  },
+  "faithful": {
+    "precision": 0.6471,
+    "recall": 0.679,
+    "f1": 0.6627
+  },
+  "confusion_matrix_rows_gold_hall_faith": [
+    [
+      81,
+      60
+    ],
+    [
+      52,
+      110
+    ]
+  ]
+}

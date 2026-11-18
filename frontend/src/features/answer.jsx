@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button'
 import { Spinner } from '../components/ui/misc'
 import { fixed, seconds } from '../lib/format'
 import { cn } from '../lib/utils'
-import { CLAIMS, DECISIONS, TONE } from '../lib/verdicts'
+import { CLAIMS, DECISIONS, TONE, claimSplit, nliSplit } from '../lib/verdicts'
 
 /** True for answers stored by the current pipeline (older records lack claims and score cards). */
 export const isComplete = (q) => Boolean(q && Array.isArray(q.claims) && Array.isArray(q.evidence) && q.score_card)
@@ -26,7 +26,7 @@ export function DecisionBanner({ decision, trust, extra }) {
       <Icon name={d.icon} size={18} strokeWidth={2} />
       <span>{d.banner}</span>
       {extra && <span className="font-normal opacity-80">{extra}</span>}
-      {trust != null && decision !== 'NO_SUPPORT' && (
+      {trust != null && (
         <span className="ml-auto font-normal">Trust <strong className="font-semibold tabular">{trust}</strong></span>
       )}
     </div>
@@ -42,7 +42,7 @@ export function ClaimText({ claims, evidence, onCite, activeRef }) {
         return (
           <span key={i}>
             <span
-              title={`${style.label}, support ${fixed(c.support)}`}
+              title={`${style.label}, entailment ${fixed(claimSplit(c).entailment)}`}
               className="underline-claim"
               style={{
                 backgroundImage: style.dashed
@@ -80,11 +80,12 @@ function ScoreStrip({ result }) {
   const c = sc.claims
   const total = c.supported + c.weak + c.unverified + c.contradicted
   const firstPage = result.evidence[0]?.page
+  const nli = nliSplit(result) ?? { entailment: 0, neutral: 0, contradiction: 0 }
   const cells = [
     ['Claims', `${c.supported} of ${total} supported`],
-    ['Entailment', fixed(sc.mean_support ?? sc.min_support)],
-    ['Neutral', fixed(sc.mean_neutral ?? 0)],
-    ['Contradiction', fixed(sc.mean_contra ?? 0)],
+    ['Entailment', fixed(nli.entailment)],
+    ['Neutral', fixed(nli.neutral)],
+    ['Contradiction', fixed(nli.contradiction)],
     ['Numbers, quotes', sc.numbers_ok && sc.quotes_ok ? 'Both match' : !sc.numbers_ok ? 'Number mismatch' : 'Quote missing'],
     ['Evidence', `${sc.evidence_types?.join(', ') || 'text'}${firstPage ? `, p.${firstPage}` : ''}`],
   ]
@@ -129,7 +130,7 @@ function Feedback({ queryId, initial }) {
       {asking && REASONS.map((r) => (
         <Button key={r} variant="outline" size="sm" disabled={busy} onClick={() => send(false, r)}>{r}</Button>
       ))}
-      {value != null && !asking && <span className="text-[13px] text-muted">Thanks, this helps improve trust scoring.</span>}
+      {value != null && !asking && <span className="text-[13px] text-muted">Thanks for the feedback.</span>}
     </div>
   )
 }
@@ -139,7 +140,7 @@ function Details({ result }) {
     <div className="flex flex-col gap-4 border-t border-border px-6 py-5 text-[13px]">
       <div className="flex items-center justify-between">
         <span className="font-semibold text-cotton">NLI Verification & Evidence Breakdown</span>
-        <span className="text-xs text-muted">Model: {result.model || 'DeBERTa-v3'}</span>
+        <span className="text-xs text-muted">Scores from the best-supporting passage or sentence{result.model ? ` · answer by ${result.model}` : ''}</span>
       </div>
       <table className="w-full border-collapse">
         <thead>
@@ -155,9 +156,7 @@ function Details({ result }) {
         </thead>
         <tbody>
           {result.claims.map((c, i) => {
-            const ent = c.support ?? 0
-            const con = c.contra ?? 0
-            const neu = c.neutral ?? Math.max(0, Math.round((1.0 - ent - con) * 1000) / 1000)
+            const { entailment: ent, neutral: neu, contradiction: con } = claimSplit(c)
             const sum = (ent + neu + con) || 1
             return (
               <tr key={i} className="border-t border-hover align-middle">
@@ -178,7 +177,7 @@ function Details({ result }) {
                   </div>
                 </td>
                 <td className="py-2.5 text-muted text-xs">
-                  {[c.checks?.quote_match ? 'quote verified' : 'no quote', c.checks?.numbers_ok ? 'numbers ok' : c.checks?.number_detail]
+                  {[c.checks?.quote_match ? (c.checks?.quote_source === 'verifier' ? 'anchored to source sentence' : 'quote verified') : 'no quote', c.checks?.numbers_ok ? 'numbers ok' : c.checks?.number_detail]
                     .filter(Boolean).join(', ')}
                 </td>
               </tr>
@@ -188,16 +187,15 @@ function Details({ result }) {
       </table>
       <p className="m-0 font-mono text-xs text-faint">
         {Object.entries(result.latency_ms ?? {}).map(([k, v]) => `${k} ${v} ms`).join('  ')}
-        {result.attempts?.length > 1 && `  repaired by ${result.attempts[1].model || 'the model'}`}
       </p>
     </div>
   )
 }
 
 /** A whole answered turn. */
-export function AnswerTurn({ turn, risk, onCite, activeRef, selected, onSelect }) {
+export function AnswerTurn({ turn, onCite, activeRef, selected, onSelect }) {
   const [open, setOpen] = useState(false)
-  const result = { claims: [], evidence: [], ...turn, query_id: turn.query_id ?? turn._id, risk }
+  const result = { claims: [], evidence: [], ...turn, query_id: turn.query_id ?? turn._id }
   if (!isComplete(turn)) result.score_card = null
   const blocked = result.decision === 'BLOCK'
   const noSupport = result.decision === 'NO_SUPPORT'
@@ -210,7 +208,7 @@ export function AnswerTurn({ turn, risk, onCite, activeRef, selected, onSelect }
         onClick={onSelect}
         className={cn('overflow-hidden rounded-[16px] border bg-card transition-colors', blocked ? 'border-[#4a1a16]' : selected ? 'border-line-bright' : 'border-border')}
       >
-        <DecisionBanner decision={result.decision} trust={result.trust} extra={result.score_card?.repaired ? '(repaired once)' : null} />
+        <DecisionBanner decision={result.decision} trust={result.trust} />
         <div className="flex flex-col gap-4 px-6 py-5">
           {blocked && result.blocked_reason && (
             <>
@@ -250,9 +248,8 @@ export function AnswerTurn({ turn, risk, onCite, activeRef, selected, onSelect }
 const STAGE_LABEL = {
   searching: () => 'Searching',
   reading: (d) => `Read ${d.passages} passages`,
-  drafting: () => 'Drafting',
+  drafting: (d) => (d.retry ? 'Re-reading the passages' : 'Drafting'),
   checking: (d) => (d.claims ? `Checking ${d.claims} claims` : 'Checking claims'),
-  repairing: () => 'Repairing one claim',
   done: () => 'Done',
 }
 export const stageText = (e) => (STAGE_LABEL[e.stage] ?? (() => e.stage))(e)

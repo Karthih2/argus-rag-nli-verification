@@ -1,2 +1,0 @@
-test,n_questions,n_answered,coverage,coverage_ci_95,decisions.Verified,decisions.Flagged,without_gate_shown
-e2e,50,50,0.94,"[0.86, 1.0]",47,3,50

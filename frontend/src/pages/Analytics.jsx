@@ -12,6 +12,7 @@ import { DecisionBadge } from '../features/answer'
 import { pickDemo } from '../lib/chat'
 import { pct, seconds } from '../lib/format'
 import { cn } from '../lib/utils'
+import { TRUST_BANDS } from '../lib/verdicts'
 
 function StatCard({ label, value, sub, helpText }) {
   return (
@@ -45,12 +46,56 @@ function ChartCard({ title, description, helpText, children, className }) {
 
 const Empty = ({ children }) => <p className="m-0 py-10 text-center text-base text-muted">{children}</p>
 const STAGE_COLOR = { retrieve: '#57534C', rerank: '#A8A496', llm: '#EDEBDD', verify: '#8DB87A' }
+const THRESHOLD_NAMES = { tau_accept: 'Supported at entailment ≥', tau_low: 'Weakly supported at ≥', tau_block: 'Contradicted at contradiction ≥' }
+const num = (v, d = 2) => (v == null ? '—' : Number(v).toFixed(d))
+
+/** What the verifier is calibrated with: thresholds (fitted or fallback) and trust-model test metrics. */
+function CalibrationCard({ info }) {
+  if (!info) return null
+  const m = info.metrics ?? {}
+  return (
+    <ChartCard title="Calibration" className="col-span-full"
+      description={info.fitted ? `Version ${info.version} · fitted ${String(info.fit_date ?? '').slice(0, 10)} · NLI temperature ${num(info.temperature)}` : 'Not fitted yet: run python -m scripts.fit_trust'}
+      helpText="Claim thresholds are fitted on held-out RAGTruth claims so that, with 95% confidence, at most the stated share of supported claims is wrong. A threshold whose target could not be met uses the fallback value and is marked so. The trust model is tested on contexts it never saw.">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        <table className="w-full border-collapse text-sm">
+          <tbody>
+            {Object.entries(THRESHOLD_NAMES).map(([key, label]) => (
+              <tr key={key} className="border-t border-hover first:border-t-0">
+                <td className="py-2 pr-3 text-muted">{label}</td>
+                <td className="py-2 pr-3 text-right font-mono tabular">{num(info.thresholds?.[key])}</td>
+                <td className="py-2 text-right text-xs">
+                  {info.fallback?.includes(key)
+                    ? <span className="text-warn">fallback</span>
+                    : <span className="text-ok">fitted · bound {num(info.threshold_report?.[key]?.bound, 3)}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <dl className="m-0 grid grid-cols-3 gap-px overflow-hidden rounded-[var(--radius-md)] border border-border bg-border text-sm">
+          {[['AUROC', num(m.auroc)], ['Brier', num(m.brier, 3)], ['ECE', num(m.ece, 3)],
+            ['Risk target', info.risk ? `${Math.round(info.risk.verified * 100)}%` : '—'],
+            ['Claim error (test)', m.claim_accept_error == null ? '—' : `${(m.claim_accept_error * 100).toFixed(1)}%`],
+            ['Coverage (test)', m.claim_coverage == null ? '—' : `${Math.round(m.claim_coverage * 100)}%`]].map(([k, v]) => (
+            <div key={k} className="bg-card px-3 py-2.5">
+              <dt className="text-[11px] uppercase tracking-wider text-muted">{k}</dt>
+              <dd className="m-0 mt-0.5 font-medium tabular">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      {info.note && <p className="m-0 text-xs text-faint">{info.note}</p>}
+    </ChartCard>
+  )
+}
 
 export default function Analytics({ search }) {
   const datasets = useApi(() => api.datasets(), [])
   const [picked, setPicked] = useState(() => new URLSearchParams(search).get('dataset'))
   const datasetId = picked ?? pickDemo(datasets.data)?._id
   const stats = useApi(() => api.analytics(datasetId, 30), [datasetId], { enabled: Boolean(datasetId) })
+  const calibration = useApi(() => api.trustInfo(), [])
   const s = stats.data
   const stageMs = s?.latency.stage_median_ms ?? {}
   const stageTotal = Object.values(stageMs).reduce((a, b) => a + (b || 0), 0)
@@ -89,26 +134,27 @@ export default function Analytics({ search }) {
             <StatCard label="Questions" value={s.totals.questions} sub="total asked" helpText="Total questions asked in this dataset over the selected period." />
             <StatCard label="Verified" value={pct(s.totals.decisions.ACCEPT, s.totals.questions)} sub={`${s.totals.decisions.ACCEPT} answers`} helpText="Percentage of answers fully verified by NLI — all claims supported by source passages." />
             <StatCard label="Withheld" value={pct(s.totals.decisions.BLOCK, s.totals.questions)} sub={`${s.totals.decisions.BLOCK} answers`} helpText="Answers withheld because one or more claims contradicted the source." />
-            <StatCard label="Avg Trust" value={s.totals.avg_trust ?? '—'} sub="out of 100" helpText="Average calibrated trust score. 80+ is reliable, 60-79 needs review, below 60 is low confidence." />
+            <StatCard label="Avg Trust" value={s.totals.avg_trust ?? '—'} sub="out of 100" helpText="Average trust score of answered questions (estimated chance the answer is correct). 80+ high, 50-79 medium, below 50 low." />
             <StatCard label="Median Time" value={seconds(s.totals.p50_ms)} sub={`p95: ${seconds(s.totals.p95_ms)}`} helpText="How long it takes to retrieve, generate, and verify an answer." />
           </dl>
 
           {/* Charts */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <CalibrationCard info={calibration.data} />
             <ChartCard title="Decisions per day" description="Withheld = contradicted by source."
               helpText="Stacked bars show how many questions were verified (green), warned (yellow), or withheld (red) each day.">
               {s.totals.questions ? <><DecisionBars data={s.per_day} /><DecisionLegend /></> : <Empty>No questions in this period.</Empty>}
             </ChartCard>
 
             <ChartCard title="Trust distribution" description="Scores in bins of 10."
-              helpText="Histogram of trust scores: green (80+) = reliable, yellow (60-79) = uncertain, gray (below 60) = low confidence.">
+              helpText="Histogram of trust scores of answered questions: 80+ high, 50-79 medium, below 50 low.">
               {s.trust_histogram.some(Boolean) ? (
-                <><TrustHistogram bins={s.trust_histogram} /><Legend items={[['80+', '#8DB87A'], ['60–79', '#C9973A'], ['Below 60', '#57534C']]} /></>
+                <><TrustHistogram bins={s.trust_histogram} /><Legend items={TRUST_BANDS.map((b) => [b.label, b.color])} /></>
               ) : <Empty>No scored answers.</Empty>}
             </ChartCard>
 
             <ChartCard title="Response time" description="Median and 95th percentile per day."
-              helpText="Time from question to verified answer. The 8s target line shows the goal. The stage breakdown shows where time is spent: retrieval, reranking, LLM generation, and NLI verification."
+              helpText="Time from question to verified answer. The 8s target line shows the goal. The stage breakdown shows where time is spent: retrieval (search + rerank), LLM drafting and NLI verification."
               className="col-span-full">
               {s.latency.series.some((x) => x.p50 != null) ? (
                 <>
