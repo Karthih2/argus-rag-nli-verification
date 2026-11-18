@@ -48,7 +48,7 @@ Argus treats the LLM's answer as an **untrusted hypothesis**. Each claim (hypoth
 
 ---
 
-## 🔄 Horizontal End-to-End Pipeline
+## 🔄 End-to-End Pipeline
 
 ```mermaid
 flowchart LR
